@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getEngineSnapshot } from "@/lib/services/snapshot";
-import { recalculateFinancialState } from "@/lib/uploads/recalculate-financial-state";
+import { recalculateFinancialState } from "@/lib/financial-state/recalculate";
 import { createAIProvider, classifyIntentRules } from "./provider";
 import { getAIConfig } from "./config";
 import { cfoAssistantResponseSchema, canAffordParamsSchema, explainMetricParamsSchema, safeToSpendParamsSchema } from "./schemas";

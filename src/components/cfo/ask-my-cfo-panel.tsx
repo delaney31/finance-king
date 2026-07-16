@@ -8,13 +8,19 @@ import {
   MessageSquarePlus,
   RefreshCw,
   Send,
+  Shield,
 } from "lucide-react";
 import type { CFOAssistantResponse } from "@/lib/ai/types";
+import type { CFODataCommand } from "@/lib/ai/commands/schemas";
+import { FINANCIAL_STATE_CHANGED_EVENT } from "@/lib/financial-state/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CfoCompactAnswerCard } from "./cfo-compact-answer-card";
+import { CfoUpdateConfirmationCard, CfoUpdateResultCard } from "./cfo-update-confirmation-card";
 import { useAskMyCfo } from "./ask-my-cfo-provider";
+
+type ComposerMode = "ask" | "update";
 
 interface Message {
   id: string;
@@ -23,7 +29,26 @@ interface Message {
   response?: CFOAssistantResponse;
   snapshotStale?: boolean;
   recalculated?: boolean;
+  basedOnOlderBalances?: boolean;
+  updateResult?: {
+    message: string;
+    metricChanges: Array<{ metric: string; before: number; after: number; difference: number }>;
+    auditId?: string;
+  };
 }
+
+const ASK_EXAMPLES = [
+  "Can I afford dinner?",
+  "Why is my safe-to-spend low?",
+  "What should I pay Amex?",
+];
+
+const UPDATE_EXAMPLES = [
+  "Update PenFed checking to $26,450",
+  "Mark mortgage paid",
+  "Record $5,000 W-2 deposit",
+  "Transfer $2,900 to Wells Fargo",
+];
 
 const LOADING_STEPS = [
   "Understanding your question…",
@@ -34,6 +59,7 @@ const LOADING_STEPS = [
 
 export function AskMyCfoPanel() {
   const { open, setOpen } = useAskMyCfo();
+  const [composerMode, setComposerMode] = useState<ComposerMode>("ask");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -43,6 +69,11 @@ export function AskMyCfoPanel() {
   const [suggested, setSuggested] = useState<string[]>([]);
   const [usage, setUsage] = useState<{ remainingToday: number; dailyLimit: number } | null>(null);
   const [showUsageInfo, setShowUsageInfo] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<{
+    command: CFODataCommand;
+    preview: Record<string, unknown>;
+    originalMessage: string;
+  } | null>(null);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
   );
@@ -101,6 +132,7 @@ export function AskMyCfoPanel() {
     setError(null);
     setLoading(true);
     setLoadingStep(0);
+    setPendingCommand(null);
 
     if (!options?.isRecalculate) {
       const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
@@ -135,12 +167,14 @@ export function AskMyCfoPanel() {
                   snapshotStale: false,
                   recalculated: true,
                 }
-              : m
+              : { ...m, basedOnOlderBalances: m.role === "assistant" ? true : m.basedOnOlderBalances }
           )
         );
       } else {
         setMessages((prev) => [
-          ...prev,
+          ...prev.map((m) =>
+            m.role === "assistant" ? { ...m, basedOnOlderBalances: true, snapshotStale: true } : m
+          ),
           {
             id: data.messageId,
             role: "assistant",
@@ -153,6 +187,137 @@ export function AskMyCfoPanel() {
       fetchUsage();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (q: string) => {
+    if (!q.trim() || loading) return;
+
+    if (composerMode === "update" || /update|transfer|mark.*paid|record.*deposit|balance is now/i.test(q)) {
+      setError(null);
+      setLoading(true);
+      const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
+      setMessages((prev) => [...prev, userMsg]);
+      setQuestion("");
+
+      try {
+        const res = await fetch("/api/v1/cfo/commands/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: q.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Parse failed");
+
+        if (data.preview?.type === "clarification") {
+          setMessages((prev) => [
+            ...prev,
+            { id: `a-${Date.now()}`, role: "assistant", content: data.preview.question },
+          ]);
+        } else if (data.needsConfirmation) {
+          setPendingCommand({
+            command: data.command,
+            preview: data.preview,
+            originalMessage: q.trim(),
+          });
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `a-${Date.now()}`,
+              role: "assistant",
+              content: data.command.clarificationQuestion ?? "I need more details to update your records.",
+            },
+          ]);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not parse update");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    await sendQuestion(q);
+  };
+
+  const confirmUpdate = async () => {
+    if (!pendingCommand || loading) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/v1/cfo/commands/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          command: pendingCommand.command,
+          originalMessage: pendingCommand.originalMessage,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.message ?? "Update failed");
+
+      setPendingCommand(null);
+      setMessages((prev) => [
+        ...prev.map((m) =>
+          m.role === "assistant" ? { ...m, basedOnOlderBalances: true, snapshotStale: true } : m
+        ),
+        {
+          id: `u-${Date.now()}`,
+          role: "assistant",
+          content: result.message,
+          updateResult: {
+            message: result.message,
+            metricChanges: result.metricChanges,
+            auditId: result.auditId,
+          },
+        },
+      ]);
+
+      window.dispatchEvent(
+        new CustomEvent(FINANCIAL_STATE_CHANGED_EVENT, {
+          detail: {
+            userId: "",
+            previousSnapshotId: result.previousSnapshotId,
+            newSnapshotId: result.newSnapshotId,
+            reason: pendingCommand.command.intent,
+            changedEntityIds: result.updatedEntities?.map((e: { id: string }) => e.id) ?? [],
+          },
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const undoUpdate = async (auditId: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/v1/cfo/commands/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auditId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.message ?? "Undo failed");
+      window.dispatchEvent(
+        new CustomEvent(FINANCIAL_STATE_CHANGED_EVENT, {
+          detail: {
+            userId: "",
+            previousSnapshotId: result.previousSnapshotId,
+            newSnapshotId: result.newSnapshotId,
+            reason: "undo",
+            changedEntityIds: [],
+          },
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Undo failed");
     } finally {
       setLoading(false);
     }
@@ -201,13 +366,15 @@ export function AskMyCfoPanel() {
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 space-y-5">
         {messages.length === 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-fk-muted">Ask anything, or try:</p>
+            <p className="text-sm text-fk-muted">
+              {composerMode === "ask" ? "Ask anything, or try:" : "Update your records, or try:"}
+            </p>
             <div className="flex flex-wrap gap-2">
-              {suggested.slice(0, 6).map((q) => (
+              {(composerMode === "ask" ? ASK_EXAMPLES : UPDATE_EXAMPLES).map((q) => (
                 <button
                   key={q}
                   type="button"
-                  onClick={() => sendQuestion(q)}
+                  onClick={() => handleSubmit(q)}
                   className="rounded-full border border-fk-border/80 px-3 py-1.5 text-left text-xs text-fk-muted transition-colors hover:border-fk-gold/40 hover:text-fk-foreground"
                 >
                   {q}
@@ -215,6 +382,16 @@ export function AskMyCfoPanel() {
               ))}
             </div>
           </div>
+        )}
+
+        {pendingCommand && (
+          <CfoUpdateConfirmationCard
+            command={pendingCommand.command}
+            preview={pendingCommand.preview as unknown as Parameters<typeof CfoUpdateConfirmationCard>[0]["preview"]}
+            loading={loading}
+            onConfirm={confirmUpdate}
+            onCancel={() => setPendingCommand(null)}
+          />
         )}
 
         {messages.map((m, idx) => {
@@ -231,17 +408,30 @@ export function AskMyCfoPanel() {
           const userQuestion =
             [...messages].slice(0, idx).reverse().find((x) => x.role === "user")?.content ?? m.content;
 
-          return m.response?.compact ? (
-            <CfoCompactAnswerCard
+          return m.updateResult ? (
+            <CfoUpdateResultCard
               key={m.id}
-              question={userQuestion}
-              response={m.response}
-              compact={m.response.compact}
-              snapshotStale={m.snapshotStale}
-              recalculated={m.recalculated}
-              onRecalculate={() => sendQuestion(userQuestion, { replaceMessageId: m.id, isRecalculate: true })}
-              onFollowUp={sendQuestion}
+              message={m.updateResult.message}
+              metricChanges={m.updateResult.metricChanges}
+              auditId={m.updateResult.auditId}
+              onUndo={m.updateResult.auditId ? () => undoUpdate(m.updateResult!.auditId!) : undefined}
+              loading={loading}
             />
+          ) : m.response?.compact ? (
+            <div key={m.id}>
+              {(m.basedOnOlderBalances || m.snapshotStale) && !m.recalculated && (
+                <p className="mb-2 text-xs text-amber-300">Based on older balances</p>
+              )}
+              <CfoCompactAnswerCard
+                question={userQuestion}
+                response={m.response}
+                compact={m.response.compact}
+                snapshotStale={m.snapshotStale}
+                recalculated={m.recalculated}
+                onRecalculate={() => sendQuestion(userQuestion, { replaceMessageId: m.id, isRecalculate: true })}
+                onFollowUp={handleSubmit}
+              />
+            </div>
           ) : (
             <p key={m.id} className="text-sm">
               {m.content}
@@ -267,6 +457,26 @@ export function AskMyCfoPanel() {
       </div>
 
       <div className="shrink-0 border-t border-fk-border/60 px-3 py-3">
+        <div className="mb-2 flex gap-1 rounded-lg bg-fk-charcoal/50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setComposerMode("ask")}
+            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium ${composerMode === "ask" ? "bg-fk-navy text-fk-gold" : "text-fk-muted"}`}
+          >
+            Ask a question
+          </button>
+          <button
+            type="button"
+            onClick={() => setComposerMode("update")}
+            className={`flex-1 rounded-md px-2 py-1 text-xs font-medium ${composerMode === "update" ? "bg-fk-navy text-fk-gold" : "text-fk-muted"}`}
+          >
+            Update my finances
+          </button>
+        </div>
+        <p className="mb-2 flex items-center gap-1 text-[10px] text-fk-muted">
+          <Shield className="h-3 w-3 shrink-0" />
+          Finance King will always show a preview before changing your records.
+        </p>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -279,25 +489,29 @@ export function AskMyCfoPanel() {
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
           <Input
-            placeholder="Ask about spending, bills, or debt…"
+            placeholder={
+              composerMode === "update"
+                ? "Update a balance, record income, or mark a bill paid…"
+                : "Ask about spending, bills, or debt…"
+            }
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                sendQuestion(question);
+                handleSubmit(question);
               }
             }}
             className="h-9 flex-1 border-fk-border/80 bg-fk-charcoal/50 text-sm"
             disabled={loading}
-            aria-label="Ask your CFO a question"
+            aria-label={composerMode === "update" ? "Update financial records" : "Ask your CFO a question"}
           />
           <Button
             size="icon"
             className="h-9 w-9 shrink-0"
-            onClick={() => sendQuestion(question)}
+            onClick={() => handleSubmit(question)}
             disabled={loading || !question.trim()}
-            aria-label="Send question"
+            aria-label="Send"
           >
             <Send className="h-4 w-4" />
           </Button>

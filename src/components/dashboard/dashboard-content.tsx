@@ -19,10 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { formatMoney } from "@/lib/utils/money";
-import type { DashboardSnapshot } from "@/lib/engine";
+import { useFinancialState } from "@/components/financial-state/financial-state-provider";
+import { FINANCIAL_STATE_CHANGED_EVENT } from "@/lib/financial-state/types";
+import { useEffect } from "react";
 
 interface DashboardContentProps {
-  dashboard: DashboardSnapshot;
   alerts: { id: string; title: string; message: string; severity: string }[];
   pendingUploads: number;
   upcomingBills: { id: string; name: string; amount: number }[];
@@ -38,13 +39,21 @@ const riskColors: Record<string, string> = {
 };
 
 export function DashboardContent({
-  dashboard,
   alerts,
   pendingUploads,
   upcomingBills,
   recommendation,
   accounts,
 }: DashboardContentProps) {
+  const { snapshot: financialState, refresh } = useFinancialState();
+  const dashboard = financialState.dashboard;
+  const calc = financialState.calculationLines;
+
+  useEffect(() => {
+    const handler = () => void refresh();
+    window.addEventListener(FINANCIAL_STATE_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(FINANCIAL_STATE_CHANGED_EVENT, handler);
+  }, [refresh]);
   const cashFlowData = Object.entries(
     dashboard.scenarios.find((s) => s.type === "BASE")?.monthlyEndingCash ?? {}
   )
@@ -94,25 +103,25 @@ export function DashboardContent({
         </Alert>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Safe to Spend Today" value={dashboard.safeToSpend.today} variant="gold" isProvisional={dashboard.isProvisional} />
-        <KpiCard title="Safe This Week" value={dashboard.safeToSpend.thisWeek} />
-        <KpiCard title="Safe This Month" value={dashboard.safeToSpend.thisMonth} />
-        <KpiCard title="Total Liquid Cash" value={dashboard.totalLiquidCash} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard title="Safe to spend today" value={financialState.safeToSpendToday} variant="gold" isProvisional={dashboard.isProvisional} calculationLines={calc} metricKey="safeToSpendToday" />
+        <KpiCard title="Safe this week" value={financialState.safeToSpendThisWeek} calculationLines={calc} metricKey="safeToSpendToday" />
+        <KpiCard title="Safe this month" value={financialState.safeToSpendThisMonth} calculationLines={calc} metricKey="safeToSpendToday" />
+        <KpiCard title="Total liquid cash" value={financialState.totalLiquidCash} calculationLines={calc} metricKey="totalLiquidCash" />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Protected Emergency" value={dashboard.protectedEmergency} variant="success" />
-        <KpiCard title="Tax Reserve" value={dashboard.taxReserve} />
-        <KpiCard title="Personal Operating" value={dashboard.personalOperatingCash} />
-        <KpiCard title="Business Operating" value={dashboard.businessOperatingCash} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard title="Protected emergency reserve" value={financialState.protectedEmergencyReserve} variant="success" calculationLines={calc} metricKey="totalLiquidCash" />
+        <KpiCard title="Tax reserve" value={financialState.taxReserve} />
+        <KpiCard title="Personal operating cash" value={financialState.personalOperatingCash} calculationLines={calc} metricKey="personalOperatingCash" />
+        <KpiCard title="Business operating cash" value={financialState.businessOperatingCash} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Total Debt" value={dashboard.totalDebt} variant="danger" />
-        <KpiCard title="Month-End Buffer" value={dashboard.monthEndBuffer} />
-        <KpiCard title="Year-End Buffer" value={dashboard.yearEndBuffer} />
-        <KpiCard title="Year-End + ESOP" value={dashboard.yearEndBufferWithEsop ?? dashboard.yearEndBuffer} variant="gold" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard title="Total debt" value={financialState.totalDebt} variant="danger" />
+        <KpiCard title="Month-end buffer" value={financialState.monthEndProjectedCash} />
+        <KpiCard title="Year-end buffer" value={financialState.yearEndProjectedCash} />
+        <KpiCard title="Year-end + ESOP" value={dashboard.yearEndBufferWithEsop ?? financialState.yearEndProjectedCash} variant="gold" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

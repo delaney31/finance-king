@@ -64,6 +64,75 @@ export function computeOperatingCash(
   return decimalToNumber(sumMoney(filtered.map((a) => spendableBalance(a))));
 }
 
+/** Personal liquid cash minus per-account protected amounts. Excludes emergency/business/property. */
+export function computePersonalOperatingCash(accounts: EngineAccount[]): number {
+  const personal = accounts.filter(
+    (a) => a.isLiquid && a.routingTag === "PERSONAL" && !isCreditAccount(a.accountType)
+  );
+  const amounts = personal.map((a) =>
+    Math.max(0, spendableBalance(a) - (a.protectedBalance || 0))
+  );
+  return decimalToNumber(sumMoney(amounts));
+}
+
+/** Business liquid cash minus protected business reserves. Excludes tax reserve accounts. */
+export function computeBusinessOperatingCash(accounts: EngineAccount[]): number {
+  const businessTags = ["JADESYSTEMS", "PACIFIC_LUXE"];
+  const business = accounts.filter(
+    (a) => a.isLiquid && businessTags.includes(a.routingTag) && !isCreditAccount(a.accountType)
+  );
+  const amounts = business.map((a) =>
+    Math.max(0, spendableBalance(a) - (a.protectedBalance || 0))
+  );
+  return decimalToNumber(sumMoney(amounts));
+}
+
+/** Property / joint operating cash */
+export function computePropertyOperatingCash(accounts: EngineAccount[]): number {
+  const property = accounts.filter(
+    (a) => a.isLiquid && a.routingTag === "NY_PROPERTY" && !isCreditAccount(a.accountType)
+  );
+  return decimalToNumber(sumMoney(property.map((a) => spendableBalance(a))));
+}
+
+/** Sum of confirmed current balances on liquid deposit accounts */
+export function computeTotalLiquidCashCurrent(accounts: EngineAccount[]): number {
+  const liquid = accounts
+    .filter((a) => a.isLiquid && !isCreditAccount(a.accountType))
+    .map((a) => a.currentBalance);
+  return decimalToNumber(sumMoney(liquid));
+}
+
+export function computeClearedLiquidCash(accounts: EngineAccount[]): number {
+  return computeLiquidCash(accounts);
+}
+
+export function computePendingCash(accounts: EngineAccount[]): number {
+  const pending = accounts
+    .filter((a) => a.isLiquid && !isCreditAccount(a.accountType) && a.pendingBalance != null)
+    .map((a) => a.pendingBalance ?? 0);
+  return decimalToNumber(sumMoney(pending));
+}
+
+export function computeAccountTotalsByDesignation(accounts: EngineAccount[]): {
+  personal: number;
+  business: number;
+  joint: number;
+} {
+  const liquid = accounts.filter((a) => a.isLiquid && !isCreditAccount(a.accountType));
+  const sumTag = (tags: string[]) =>
+    decimalToNumber(
+      sumMoney(
+        liquid.filter((a) => tags.includes(a.routingTag)).map((a) => a.currentBalance)
+      )
+    );
+  return {
+    personal: sumTag(["PERSONAL", "EMERGENCY"]),
+    business: sumTag(["JADESYSTEMS", "PACIFIC_LUXE", "TAX_RESERVE"]),
+    joint: sumTag(["NY_PROPERTY"]),
+  };
+}
+
 export function getAccountByTag(accounts: EngineAccount[], tag: string): EngineAccount[] {
   return accounts.filter((a) => a.routingTag === tag);
 }
