@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getStorage } from "@/lib/storage/provider";
+import { isStorageConfigured } from "@/lib/storage/config";
 import { enqueueDocumentProcessing } from "@/lib/jobs/queue";
 import { processDocument } from "@/workers/process-upload";
 
@@ -21,6 +22,16 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isStorageConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          "File storage is not configured. Add STORAGE_* environment variables (see docs/render.md).",
+      },
+      { status: 503 }
+    );
   }
 
   const form = await req.formData();
@@ -48,8 +59,16 @@ export async function POST(req: Request) {
   }
 
   const storageKey = `${session.user.id}/${randomUUID()}-${file.name}`;
-  const storage = getStorage();
-  await storage.upload(storageKey, buffer, file.type || "application/octet-stream");
+  try {
+    const storage = getStorage();
+    await storage.upload(storageKey, buffer, file.type || "application/octet-stream");
+  } catch (error) {
+    console.error("Storage upload failed:", error);
+    return NextResponse.json(
+      { error: "Failed to save file to storage. Check STORAGE_* credentials and bucket name." },
+      { status: 502 }
+    );
+  }
 
   const doc = await prisma.uploadedDocument.create({
     data: {
@@ -75,8 +94,13 @@ export async function POST(req: Request) {
 
   try {
     await enqueueDocumentProcessing(doc.id);
-  } catch {
-    await processDocument(doc.id);
+  } catch (error) {
+    console.warn("Queue unavailable, processing inline:", error);
+    try {
+      await processDocument(doc.id);
+    } catch (processError) {
+      console.error("Inline processing failed:", processError);
+    }
   }
 
   return NextResponse.json({

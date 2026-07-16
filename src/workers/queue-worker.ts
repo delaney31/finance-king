@@ -1,10 +1,6 @@
 import { Worker } from "bullmq";
-import IORedis from "ioredis";
+import { createRedisConnection } from "@/lib/redis";
 import { processDocument } from "./process-upload";
-
-const connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
-  maxRetriesPerRequest: null,
-});
 
 const worker = new Worker(
   "process-document",
@@ -12,7 +8,7 @@ const worker = new Worker(
     const { documentId } = job.data as { documentId: string };
     await processDocument(documentId);
   },
-  { connection }
+  { connection: createRedisConnection() }
 );
 
 worker.on("completed", (job) => {

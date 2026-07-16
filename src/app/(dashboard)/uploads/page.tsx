@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { UploadsContent } from "@/components/uploads/uploads-content";
+import { isStorageConfigured } from "@/lib/storage/config";
 
 export default async function UploadsPage() {
   const session = await auth();
@@ -29,6 +30,7 @@ export default async function UploadsPage() {
             }
           : null,
       }))}
+      storageReady={isStorageConfigured()}
     />
   );
 }

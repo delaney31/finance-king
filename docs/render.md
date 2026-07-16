@@ -27,27 +27,58 @@ Your app URL will look like: `https://finance-king.onrender.com`
 
 ---
 
-## 2. Object storage (required for uploads)
+## 2. Enable uploads (Cloudflare R2)
 
-Render does not include S3-compatible storage. Use **Cloudflare R2** (free tier works for dev):
+Uploads need S3-compatible storage. Render does not provide this — use **Cloudflare R2** (free tier is fine for dev).
 
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → **R2** → Create bucket `finance-king-uploads`
-2. **Manage R2 API tokens** → Create token with Object Read & Write
-3. In Render → **finance-king** web service → **Environment** → set:
+### Step A — Create R2 bucket
 
-| Variable | Example |
-|----------|---------|
-| `STORAGE_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+1. Open [dash.cloudflare.com](https://dash.cloudflare.com) → **R2**
+2. **Create bucket** → name: `finance-king-uploads`
+3. Note your **Account ID** (right sidebar on R2 overview)
+
+### Step B — Create API token
+
+1. R2 → **Manage R2 API tokens** → **Create API token**
+2. Permissions: **Object Read & Write**
+3. Scope: this bucket only (or all buckets for dev)
+4. Copy the **Access Key ID** and **Secret Access Key** (secret shown once)
+
+### Step C — Set Render environment variables
+
+On **both** `finance-king` (web) and `finance-king-worker`:
+
+| Variable | Value |
+|----------|-------|
+| `STORAGE_ENDPOINT` | `https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com` |
 | `STORAGE_REGION` | `auto` |
-| `STORAGE_ACCESS_KEY` | R2 access key id |
-| `STORAGE_SECRET_KEY` | R2 secret |
+| `STORAGE_ACCESS_KEY` | R2 access key ID |
+| `STORAGE_SECRET_KEY` | R2 secret access key |
 | `STORAGE_BUCKET` | `finance-king-uploads` |
 | `STORAGE_FORCE_PATH_STYLE` | `false` |
 
-4. Copy the same `STORAGE_*` values to **finance-king-worker**.
-5. **Manual Deploy** both services after saving env vars.
+> Do **not** put the bucket name in the endpoint URL.
 
-> Dashboard, accounts, scenarios, and credit tools work without storage. Uploads/OCR require these variables.
+### Step D — Redeploy and verify
+
+1. **Manual Deploy** web + worker after saving env vars
+2. Web service **Shell**:
+
+```bash
+npm run test:storage
+```
+
+3. Browser: `https://YOUR-APP.onrender.com/api/health` → `"storage": "ok"`
+4. Confirm **finance-king-worker** status is **Live**
+
+### Step E — Test an upload
+
+1. Go to **Uploads** in the app
+2. Upload a bank screenshot (PNG/JPG)
+3. Status should move `PROCESSING` → `REVIEW_REQUIRED` within ~30s
+4. Click **Review** → **Confirm & Save**
+
+> Dashboard and other pages work without storage. Only uploads need R2.
 
 ---
 
@@ -72,7 +103,7 @@ npm run db:seed
 GET https://finance-king.onrender.com/api/health
 ```
 
-Returns database and Redis status. Render uses this for deploy health checks.
+Returns database, Redis, and storage status. Render uses this for deploy health checks.
 
 ---
 
@@ -103,7 +134,8 @@ Wire `DATABASE_URL` and `REDIS_URL` from your Render Postgres and Key Value inst
 |---------|-----|
 | Build fails on Prisma | Ensure `DATABASE_URL` is set from the linked Postgres instance |
 | Auth redirect loop | Confirm `AUTH_URL` matches `RENDER_EXTERNAL_URL` (set automatically by Blueprint) |
-| Uploads hang | Check worker is running; verify `REDIS_URL` and `STORAGE_*` on both services |
+| Upload fails immediately | Run `npm run test:storage` in Shell; check `STORAGE_*` on web + worker |
+| Upload stuck on PROCESSING | Confirm worker is **Live**; check worker logs for OCR errors |
 | Cold start slow | Free web tier sleeps after ~15 min idle — upgrade to `starter` for always-on |
 | `ENCRYPTION_KEY` errors | Re-copy the same key from web → worker env |
 

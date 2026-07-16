@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatMoney } from "@/lib/utils/money";
 
 interface UploadItem {
@@ -18,26 +19,70 @@ interface UploadItem {
   } | null;
 }
 
-export function UploadsContent({ initialUploads }: { initialUploads: UploadItem[] }) {
+const PROCESSING_STATUSES = new Set(["PENDING", "PROCESSING"]);
+
+export function UploadsContent({
+  initialUploads,
+  storageReady,
+}: {
+  initialUploads: UploadItem[];
+  storageReady: boolean;
+}) {
   const [uploads, setUploads] = useState(initialUploads);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const uploadsRef = useRef(uploads);
+  uploadsRef.current = uploads;
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const pending = uploadsRef.current.filter((u) => PROCESSING_STATUSES.has(u.status));
+      if (pending.length === 0) return;
+
+      const updates = await Promise.all(
+        pending.map(async (u) => {
+          const res = await fetch(`/api/v1/uploads/${u.id}`);
+          if (!res.ok) return u;
+          return (await res.json()) as UploadItem;
+        })
+      );
+
+      setUploads((prev) => {
+        const byId = new Map(prev.map((u) => [u.id, u]));
+        for (const item of updates) byId.set(item.id, item);
+        return Array.from(byId.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const onDrop = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
+    if (!storageReady) {
+      setError("File storage is not configured on the server yet.");
+      return;
+    }
+
     setUploading(true);
+    setError("");
 
     for (const file of Array.from(files)) {
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/v1/uploads", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const doc = await res.json();
-        setUploads((prev) => [doc, ...prev]);
+        setUploads((prev) => [data as UploadItem, ...prev]);
+      } else {
+        setError(data.error ?? `Upload failed for ${file.name}`);
       }
     }
     setUploading(false);
-  }, []);
+  }, [storageReady]);
 
   async function confirmUpload(id: string) {
     await fetch(`/api/v1/uploads/${id}/confirm`, { method: "POST" });
@@ -50,6 +95,17 @@ export function UploadsContent({ initialUploads }: { initialUploads: UploadItem[
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Upload Center</h1>
+
+      {!storageReady && (
+        <Alert className="border-yellow-500/50 bg-yellow-500/10">
+          <AlertTitle>Storage not configured</AlertTitle>
+          <AlertDescription>
+            Uploads require Cloudflare R2 (or S3) credentials on Render. Set STORAGE_ENDPOINT,
+            STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, and STORAGE_BUCKET on both the web service and
+            worker, then redeploy. See docs/render.md.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader><CardTitle>Upload Documents</CardTitle></CardHeader>
@@ -65,9 +121,11 @@ export function UploadsContent({ initialUploads }: { initialUploads: UploadItem[
               accept=".png,.jpg,.jpeg,.pdf,.csv,.heic"
               multiple
               className="mt-4"
+              disabled={!storageReady || uploading}
               onChange={(e) => onDrop(e.target.files)}
             />
             {uploading && <p className="mt-2 text-sm text-fk-gold">Uploading...</p>}
+            {error && <p className="mt-2 text-sm text-fk-risk-red">{error}</p>}
           </div>
         </CardContent>
       </Card>

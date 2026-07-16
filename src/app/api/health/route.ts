@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import IORedis from "ioredis";
+import { createRedisConnection } from "@/lib/redis";
+import { getStorage } from "@/lib/storage/provider";
+import { isStorageConfigured } from "@/lib/storage/config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +18,7 @@ export async function GET() {
 
   const redisUrl = process.env.REDIS_URL;
   if (redisUrl) {
-    const redis = new IORedis(redisUrl, {
-      maxRetriesPerRequest: 1,
-      connectTimeout: 3000,
-      lazyConnect: true,
-    });
+    const redis = createRedisConnection();
     try {
       await redis.connect();
       await redis.ping();
@@ -32,6 +30,20 @@ export async function GET() {
     }
   } else {
     checks.redis = "not_configured";
+  }
+
+  if (isStorageConfigured()) {
+    try {
+      const storage = getStorage();
+      const testKey = `_healthcheck/${Date.now()}.txt`;
+      await storage.upload(testKey, Buffer.from("ok"), "text/plain");
+      await storage.delete(testKey);
+      checks.storage = "ok";
+    } catch {
+      checks.storage = "error";
+    }
+  } else {
+    checks.storage = "not_configured";
   }
 
   const healthy = checks.database === "ok";

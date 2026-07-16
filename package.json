@@ -19,7 +19,8 @@
     "db:seed": "prisma db seed",
     "worker": "tsx src/workers/queue-worker.ts",
     "render-build": "prisma generate && next build",
-    "render:start": "next start -H 0.0.0.0 -p ${PORT:-3000}"
+    "render:start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
+    "test:storage": "tsx scripts/test-storage.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.9.1",

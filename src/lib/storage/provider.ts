@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageConfig, StorageProvider } from "./types";
+import { isStorageConfigured } from "./config";
 
 export function createS3Storage(config: StorageConfig): StorageProvider {
   const client = new S3Client({
@@ -55,6 +56,12 @@ export function createS3Storage(config: StorageConfig): StorageProvider {
 }
 
 export function getStorage(): StorageProvider {
+  if (process.env.NODE_ENV === "production" && !isStorageConfigured()) {
+    throw new Error(
+      "File storage is not configured. Set STORAGE_ENDPOINT, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY, and STORAGE_BUCKET."
+    );
+  }
+
   return createS3Storage({
     endpoint: process.env.STORAGE_ENDPOINT ?? "http://localhost:9000",
     region: process.env.STORAGE_REGION ?? "us-east-1",
