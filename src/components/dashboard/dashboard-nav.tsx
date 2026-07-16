@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -36,6 +37,18 @@ const navItems = [
 export function DashboardNav() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const themeIcon =
+    mounted && theme === "dark" ? (
+      <Sun className="h-4 w-4" />
+    ) : (
+      <Moon className="h-4 w-4" />
+    );
 
   return (
     <>
@@ -72,7 +85,7 @@ export function DashboardNav() {
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="w-full justify-start"
           >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {themeIcon}
             Toggle theme
           </Button>
         </div>
