@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import type { AccountMatchCandidate, AccountMatchResult, ExtractedFinancialData } from "./types";
 import { accountTypeForDocument } from "./classify-document";
+import { isAccountCompatibleWithDocument } from "./document-types";
 
 export interface MatchableAccount {
   id: string;
@@ -13,29 +14,8 @@ export interface MatchableAccount {
   businessEntityId: string | null;
 }
 
-const DEPOSIT_TYPES = new Set([
-  "CHECKING",
-  "SAVINGS",
-  "MONEY_MARKET",
-  "BUSINESS_CHECKING",
-  "BUSINESS_SAVINGS",
-  "JOINT_CHECKING",
-  "JOINT_SAVINGS",
-]);
-
-const CREDIT_TYPES = new Set(["CREDIT_CARD"]);
-const LOAN_TYPES = new Set(["VEHICLE_LOAN", "MORTGAGE", "PERSONAL_LOAN"]);
-
 function normalizeInstitution(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function typesCompatible(documentType: ExtractedFinancialData["documentType"], accountType: string): boolean {
-  if (documentType === "DEPOSIT_ACCOUNT") return DEPOSIT_TYPES.has(accountType);
-  if (documentType === "CREDIT_CARD") return CREDIT_TYPES.has(accountType);
-  if (documentType === "LOAN") return LOAN_TYPES.has(accountType);
-  if (documentType === "TRANSACTION_STATEMENT") return true;
-  return false;
 }
 
 export function scoreAccountMatch(
@@ -44,6 +24,20 @@ export function scoreAccountMatch(
 ): AccountMatchCandidate {
   let score = 0;
   const reasons: string[] = [];
+
+  if (extracted.documentType !== "UNKNOWN" && extracted.documentType !== "TRANSACTION_STATEMENT") {
+    if (!isAccountCompatibleWithDocument(extracted.documentType, account.accountType)) {
+      return {
+        accountId: account.id,
+        nickname: account.nickname,
+        institution: account.institution,
+        accountType: account.accountType,
+        accountLastFour: account.accountLastFour,
+        score: -10,
+        reasons: ["account type incompatible"],
+      };
+    }
+  }
 
   if (extracted.institution) {
     const instA = normalizeInstitution(extracted.institution);
@@ -54,12 +48,13 @@ export function scoreAccountMatch(
     }
   }
 
-  if (typesCompatible(extracted.documentType, account.accountType)) {
+  if (
+    extracted.documentType === "UNKNOWN" ||
+    isAccountCompatibleWithDocument(extracted.documentType, account.accountType) ||
+    extracted.documentType === "TRANSACTION_STATEMENT"
+  ) {
     score += 3;
     reasons.push("account type compatible");
-  } else if (extracted.documentType !== "TRANSACTION_STATEMENT" && extracted.documentType !== "UNKNOWN") {
-    score -= 4;
-    reasons.push("account type mismatch");
   }
 
   if (extracted.accountLastFour && account.accountLastFour) {
@@ -93,13 +88,18 @@ export function matchExistingAccount(
   extracted: Pick<ExtractedFinancialData, "institution" | "accountLastFour" | "documentType">,
   accounts: MatchableAccount[]
 ): AccountMatchResult {
-  const candidates = accounts
+  const eligibleAccounts =
+    extracted.documentType === "UNKNOWN"
+      ? accounts
+      : accounts.filter((a) => isAccountCompatibleWithDocument(extracted.documentType, a.accountType));
+
+  const candidates = eligibleAccounts
     .map((account) => scoreAccountMatch(extracted, account))
     .filter((c) => c.score > 0)
     .sort((a, b) => b.score - a.score);
 
   const institutionMatches = extracted.institution
-    ? accounts.filter((a) => {
+    ? eligibleAccounts.filter((a) => {
         const instA = normalizeInstitution(extracted.institution!);
         const instB = normalizeInstitution(a.institution);
         return instA.includes(instB) || instB.includes(instA);
@@ -111,14 +111,14 @@ export function matchExistingAccount(
     !top ||
     top.score < 6 ||
     (institutionMatches.length > 1 && !extracted.accountLastFour) ||
-    (top.score - (candidates[1]?.score ?? 0)) < 2;
+    top.score - (candidates[1]?.score ?? 0) < 2;
 
   return {
     accountId: top && top.score >= 6 && !requiresUserConfirmation ? top.accountId : null,
     score: top?.score ?? 0,
     reasons: top?.reasons ?? ["no confident account match"],
     requiresUserConfirmation,
-    candidates: candidates.slice(0, 5),
+    candidates: candidates.slice(0, 8),
   };
 }
 

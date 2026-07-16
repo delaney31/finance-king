@@ -10,7 +10,7 @@ describe("buildExtractedFinancialData", () => {
       Account ending in 4521
     `;
     const data = buildExtractedFinancialData(text);
-    expect(data.documentType).toBe("DEPOSIT_ACCOUNT");
+    expect(data.documentType).toBe("CHECKING");
     expect(data.institution).toBe("PenFed");
     expect(data.accountLastFour).toBe("4521");
     expect(data.currentBalance).toBe(24032.25);

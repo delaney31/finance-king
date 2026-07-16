@@ -53,7 +53,7 @@ describe("upload pipeline integration", () => {
   it("checking screenshot routes to checking account type", () => {
     const text = "PenFed Checking Current Balance: $24,032.25 Account ending 4521";
     const extracted = buildExtractedFinancialData(text);
-    expect(extracted.documentType).toBe("DEPOSIT_ACCOUNT");
+    expect(extracted.documentType).toBe("CHECKING");
 
     const match = matchExistingAccount(extracted, [
       {
@@ -164,6 +164,7 @@ describe("upload pipeline integration", () => {
   it("builds human-readable import summary", () => {
     const summary: ImportSummary = {
       documentId: "doc-1",
+      documentType: "CHECKING",
       accountId: "1",
       accountNickname: "PenFed Checking",
       action: "UPDATED",

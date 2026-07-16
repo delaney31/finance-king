@@ -34,15 +34,17 @@ describe("normalizeExtractedData", () => {
 
   it("recomputes match when stored match is invalid", () => {
     const extracted = normalizeExtractedData({
-      documentType: "DEPOSIT_ACCOUNT",
+      documentType: "CHECKING",
       institution: "PenFed",
       accountLastFour: "4521",
       classification: {
-        type: "DEPOSIT_ACCOUNT",
+        type: "CHECKING",
         confidence: 0.8,
         reasons: [],
         scores: {
-          DEPOSIT_ACCOUNT: 5,
+          CHECKING: 5,
+          SAVINGS: 0,
+          MONEY_MARKET: 0,
           CREDIT_CARD: 0,
           LOAN: 0,
           TRANSACTION_STATEMENT: 0,

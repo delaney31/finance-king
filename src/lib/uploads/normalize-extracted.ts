@@ -1,6 +1,7 @@
 import { classifyFinancialDocument } from "./classify-document";
 import { buildExtractedFinancialData } from "./extract-fields";
 import { matchExistingAccount, type MatchableAccount } from "./match-account";
+import { normalizeDocumentType } from "./document-types";
 import type {
   AccountMatchResult,
   DocumentClassification,
@@ -14,7 +15,9 @@ function emptyClassification(): DocumentClassification {
     confidence: 0,
     reasons: ["extraction incomplete — manual review required"],
     scores: {
-      DEPOSIT_ACCOUNT: 0,
+      CHECKING: 0,
+      SAVINGS: 0,
+      MONEY_MARKET: 0,
       CREDIT_CARD: 0,
       LOAN: 0,
       TRANSACTION_STATEMENT: 0,
@@ -32,7 +35,9 @@ function normalizeClassification(value: unknown): DocumentClassification {
     confidence: typeof record.confidence === "number" ? record.confidence : 0,
     reasons: Array.isArray(record.reasons) ? record.reasons : ["manual review required"],
     scores: record.scores ?? {
-      DEPOSIT_ACCOUNT: 0,
+      CHECKING: 0,
+      SAVINGS: 0,
+      MONEY_MARKET: 0,
       CREDIT_CARD: 0,
       LOAN: 0,
       TRANSACTION_STATEMENT: 0,
@@ -68,10 +73,10 @@ export function normalizeExtractedData(
 
   const classification = normalizeClassification(record.classification);
 
-  const documentType =
-    typeof record.documentType === "string"
-      ? (record.documentType as ExtractedFinancialData["documentType"])
-      : classification.type;
+  const documentType = normalizeDocumentType(
+    typeof record.documentType === "string" ? record.documentType : classification.type,
+    typeof record.rawText === "string" ? record.rawText : rawText ?? undefined
+  );
 
   const legacyBalance = record.balance as { value?: string | number } | undefined;
   const currentBalance =

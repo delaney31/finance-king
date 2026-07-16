@@ -139,7 +139,7 @@ export function buildExtractedFinancialData(rawText: string): ExtractedFinancial
   if (documentType === "UNKNOWN" && statementBalance && creditLimit) {
     documentType = "CREDIT_CARD";
   } else if (documentType === "UNKNOWN" && availableBalance) {
-    documentType = "DEPOSIT_ACCOUNT";
+    documentType = "CHECKING";
   }
 
   const transactions = extractTransactions(rawText);

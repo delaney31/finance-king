@@ -1,5 +1,7 @@
 export type UploadedFinancialDocumentType =
-  | "DEPOSIT_ACCOUNT"
+  | "CHECKING"
+  | "SAVINGS"
+  | "MONEY_MARKET"
   | "CREDIT_CARD"
   | "LOAN"
   | "TRANSACTION_STATEMENT"
@@ -78,6 +80,7 @@ export interface ImportReviewPayload {
 
 export interface ConfirmImportInput {
   documentId: string;
+  documentType: UploadedFinancialDocumentType;
   action: "UPDATE_EXISTING" | "CREATE_NEW" | "UNSUPPORTED";
   accountId?: string;
   createAccount?: {
@@ -99,6 +102,7 @@ export interface ConfirmImportInput {
 
 export interface ImportSummary {
   documentId: string;
+  documentType: UploadedFinancialDocumentType;
   accountId: string;
   accountNickname: string;
   action: "UPDATED" | "CREATED" | "REJECTED";

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { accountTypeForDocument } from "./classify-document";
+import { accountTypeForDocument, isAccountCompatibleWithDocument } from "./document-types";
 import { matchExistingAccount, transactionFingerprint, type MatchableAccount } from "./match-account";
 import {
   createEmptyExtracted,
@@ -151,6 +151,7 @@ export async function confirmImport(userId: string, input: ConfirmImportInput): 
     });
     const summary: ImportSummary = {
       documentId: input.documentId,
+      documentType: input.documentType,
       accountId: "",
       accountNickname: "",
       action: "REJECTED",
@@ -172,8 +173,15 @@ export async function confirmImport(userId: string, input: ConfirmImportInput): 
     return summary;
   }
 
-  const extracted = mergeExtracted(review.extracted, input.confirmedFields);
+  const extracted = mergeExtracted(review.extracted, {
+    ...input.confirmedFields,
+    documentType: input.documentType,
+  });
   const skipSet = new Set(input.skipDuplicateIndexes);
+
+  if (input.documentType === "UNKNOWN") {
+    throw new Error("Select a financial document type before confirming.");
+  }
 
   const txResult = await prisma.$transaction(async (tx) => {
     let accountId = input.accountId ?? review.match.accountId ?? undefined;
@@ -186,7 +194,7 @@ export async function confirmImport(userId: string, input: ConfirmImportInput): 
       action = "CREATED";
       const accountType =
         input.createAccount.accountType ||
-        accountTypeForDocument(extracted.documentType) ||
+        accountTypeForDocument(input.documentType) ||
         "CHECKING";
 
       const account = await tx.financialAccount.create({
@@ -246,6 +254,12 @@ export async function confirmImport(userId: string, input: ConfirmImportInput): 
 
     const existingAccount = await tx.financialAccount.findFirst({ where: { id: accountId, userId } });
     if (!existingAccount) throw new Error("Account not found");
+
+    if (!isAccountCompatibleWithDocument(input.documentType, existingAccount.accountType)) {
+      throw new Error(
+        `Cannot import ${input.documentType.replace(/_/g, " ").toLowerCase()} into ${existingAccount.accountType.replace(/_/g, " ").toLowerCase()} account`
+      );
+    }
 
     if (action === "UPDATED") {
       previousBalance = Number(existingAccount.currentBalance);
@@ -410,6 +424,7 @@ export async function confirmImport(userId: string, input: ConfirmImportInput): 
   const afterState = await recalculateFinancialState(userId);
   const summary: ImportSummary = {
     documentId: input.documentId,
+    documentType: input.documentType,
     accountId: txResult.accountId,
     accountNickname: txResult.accountNickname,
     action: txResult.action,
