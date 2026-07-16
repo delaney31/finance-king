@@ -1,0 +1,844 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+  ADVISOR
+}
+
+enum PlanTier {
+  FREE
+  KING
+  EMPIRE
+}
+
+enum AccountType {
+  CHECKING
+  SAVINGS
+  MONEY_MARKET
+  BUSINESS_CHECKING
+  BUSINESS_SAVINGS
+  JOINT_CHECKING
+  JOINT_SAVINGS
+  CREDIT_CARD
+  VEHICLE_LOAN
+  MORTGAGE
+  PERSONAL_LOAN
+  RETIREMENT
+  INVESTMENT
+  PROPERTY
+  BUSINESS_ENTITY
+  TAX_RESERVE
+}
+
+enum OwnershipType {
+  INDIVIDUAL
+  JOINT
+  BUSINESS
+}
+
+enum Designation {
+  PERSONAL
+  BUSINESS
+}
+
+enum RoutingTag {
+  PERSONAL
+  JADESYSTEMS
+  PACIFIC_LUXE
+  NY_PROPERTY
+  TAX_RESERVE
+  EMERGENCY
+}
+
+enum BalanceSource {
+  MANUAL
+  OCR
+  IMPORT
+  SEED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+  DEBT_PAYMENT
+  SAVINGS
+}
+
+enum IncomeStatus {
+  SCHEDULED
+  RECEIVED
+  CANCELLED
+}
+
+enum IncomeFrequency {
+  ONE_TIME
+  WEEKLY
+  BIWEEKLY
+  SEMIMONTHLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum BillFrequency {
+  ONE_TIME
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  REVIEW_REQUIRED
+  CONFIRMED
+  REJECTED
+  DUPLICATE
+}
+
+enum ExtractionStatus {
+  PENDING
+  COMPLETE
+  FAILED
+}
+
+enum RecurringClassification {
+  NECESSARY
+  DISCRETIONARY
+  POTENTIALLY_REDUCIBLE
+}
+
+enum RecurringFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  IRREGULAR
+}
+
+enum RecurringStatus {
+  DETECTED
+  APPROVED
+  REJECTED
+  EDITED
+}
+
+enum ScenarioType {
+  CONSERVATIVE
+  BASE
+  STRONG
+}
+
+enum RiskLevel {
+  GREEN
+  YELLOW
+  ORANGE
+  RED
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  URGENT
+  CRITICAL
+}
+
+enum AlertType {
+  UPCOMING_BILL
+  LOW_BALANCE
+  DEPOSIT_NOT_RECEIVED
+  CREDIT_CARD_DUE
+  STATEMENT_CLOSING
+  HIGH_UTILIZATION
+  BUDGET_EXCEEDED
+  DUPLICATE_TRANSACTION
+  SUBSCRIPTION_INCREASE
+  TAX_RESERVE_LOW
+  EMERGENCY_FUND_USED
+  OVERDRAFT_RISK
+  UNREVIEWED_UPLOAD
+  MONTHLY_REPORT_READY
+}
+
+enum CalendarEventType {
+  BILL
+  PAYDAY
+  INCOME
+  CREDIT_DUE
+  STATEMENT_CLOSE
+  TRAVEL
+  PURCHASE
+  DEBT_PAYMENT
+  TRANSFER
+  SAVINGS
+}
+
+enum GoalType {
+  EMERGENCY_FUND
+  TAX_RESERVE
+  DEBT_FREE
+  CREDIT_SCORE
+  CUSTOM
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+// ─── Auth & Tenancy ──────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  passwordHash  String?
+  role          UserRole  @default(USER)
+  planTier      PlanTier  @default(KING)
+  featureFlags  Json      @default("{}")
+  onboardingComplete Boolean @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  accounts              Account[]
+  sessions              Session[]
+  preference            UserPreference?
+  subscription          Subscription?
+  consents              UserConsent[]
+  household             Household?
+  businessEntities      BusinessEntity[]
+  financialAccounts     FinancialAccount[]
+  transactions          Transaction[]
+  categories            TransactionCategory[]
+  categorizationRules   CategorizationRule[]
+  uploadedDocuments     UploadedDocument[]
+  recurringTransactions RecurringTransaction[]
+  incomeSources         IncomeSource[]
+  bills                 Bill[]
+  debts                 Debt[]
+  creditCards           CreditCard[]
+  creditScoreSnapshots  CreditScoreSnapshot[]
+  creditGoals           CreditGoal[]
+  savingsGoals          SavingsGoal[]
+  budgets               Budget[]
+  calendarEvents        CalendarEvent[]
+  cashFlowProjections   CashFlowProjection[]
+  scenarios             Scenario[]
+  plannedPurchases      PlannedPurchase[]
+  tripBudgets           TripBudget[]
+  alerts                Alert[]
+  recommendations       Recommendation[]
+  auditLogs             AuditLog[]
+  routingRules          AccountRoutingRule[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Household {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members HouseholdMember[]
+}
+
+model HouseholdMember {
+  id          String   @id @default(cuid())
+  householdId String
+  name        String
+  relationship String?
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model BusinessEntity {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  ein       String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialAccounts FinancialAccount[]
+}
+
+model UserPreference {
+  id                    String  @id @default(cuid())
+  userId                String  @unique
+  theme                 String  @default("dark")
+  safetyMarginFlat      Decimal @default(500) @db.Decimal(12, 2)
+  safetyMarginPercent   Decimal @default(0) @db.Decimal(5, 4)
+  currency              String  @default("USD")
+  timezone              String  @default("America/New_York")
+  emailNotifications    Boolean @default(true)
+  pushNotifications     Boolean @default(false)
+  smsNotifications      Boolean @default(false)
+  autoDeleteUploadDays  Int?
+  localOcrOnly          Boolean @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  userId           String             @unique
+  planTier         PlanTier           @default(FREE)
+  status           SubscriptionStatus @default(TRIALING)
+  stripeCustomerId String?
+  stripeSubId      String?
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  ocrQuotaMonthly  Int                @default(50)
+  storageQuotaMb   Int                @default(500)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserConsent {
+  id        String   @id @default(cuid())
+  userId    String
+  consentType String
+  granted   Boolean
+  grantedAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Financial Accounts ────────────────────────────────────────────────────────
+
+model FinancialAccount {
+  id                String        @id @default(cuid())
+  userId            String
+  businessEntityId  String?
+  institution       String
+  nickname          String
+  accountType       AccountType
+  ownershipType     OwnershipType @default(INDIVIDUAL)
+  designation       Designation   @default(PERSONAL)
+  routingTag        RoutingTag    @default(PERSONAL)
+  accountLastFour   String?
+  currentBalance    Decimal       @default(0) @db.Decimal(14, 2)
+  minimumTargetBalance Decimal    @default(0) @db.Decimal(14, 2)
+  protectedBalance  Decimal       @default(0) @db.Decimal(14, 2)
+  creditLimit       Decimal?      @db.Decimal(14, 2)
+  interestRate      Decimal?      @db.Decimal(8, 4)
+  minimumPayment    Decimal?      @db.Decimal(14, 2)
+  paymentDueDay     Int?
+  statementCloseDay Int?
+  autopayEnabled    Boolean       @default(false)
+  isLiquid          Boolean       @default(true)
+  notes             String?
+  isSeedData        Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessEntity    BusinessEntity?         @relation(fields: [businessEntityId], references: [id])
+  balanceSnapshots  AccountBalanceSnapshot[]
+  transactions      Transaction[]
+  creditCard        CreditCard?
+  debt              Debt?
+  routingRulesFrom  AccountRoutingRule[]    @relation("SourceAccount")
+  routingRulesTo    AccountRoutingRule[]    @relation("TargetAccount")
+  recurringTransactions RecurringTransaction[]
+
+  @@index([userId, accountType])
+}
+
+model AccountBalanceSnapshot {
+  id        String        @id @default(cuid())
+  accountId String
+  balance   Decimal       @db.Decimal(14, 2)
+  asOfDate  DateTime      @db.Date
+  source    BalanceSource @default(MANUAL)
+  notes     String?
+  createdAt DateTime      @default(now())
+
+  account FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, asOfDate])
+}
+
+model AccountRoutingRule {
+  id              String  @id @default(cuid())
+  userId          String
+  name            String
+  incomeSourceKey String?
+  sourceAccountId String?
+  targetAccountId String
+  allocationPercent Decimal @default(100) @db.Decimal(5, 2)
+  isActive        Boolean @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceAccount FinancialAccount? @relation("SourceAccount", fields: [sourceAccountId], references: [id])
+  targetAccount FinancialAccount  @relation("TargetAccount", fields: [targetAccountId], references: [id], onDelete: Cascade)
+}
+
+// ─── Transactions & Categories ───────────────────────────────────────────────
+
+model TransactionCategory {
+  id          String  @id @default(cuid())
+  userId      String
+  name        String
+  parentId    String?
+  slug        String
+  isSystem    Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       TransactionCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children     TransactionCategory[] @relation("CategoryTree")
+  transactions Transaction[]
+  rules        CategorizationRule[]
+  budgetCategories BudgetCategory[]
+
+  @@unique([userId, slug])
+}
+
+model CategorizationRule {
+  id          String  @id @default(cuid())
+  userId      String
+  categoryId  String
+  pattern     String
+  accountId   String?
+  priority    Int     @default(0)
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category TransactionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id              String          @id @default(cuid())
+  userId          String
+  accountId       String
+  categoryId      String?
+  amount          Decimal         @db.Decimal(14, 2)
+  date            DateTime        @db.Date
+  description     String
+  merchant        String?
+  type            TransactionType @default(EXPENSE)
+  isTransfer      Boolean         @default(false)
+  transferPairId  String?
+  isPending       Boolean         @default(false)
+  clearedAt       DateTime?
+  confidence      Decimal?        @db.Decimal(4, 3)
+  isSeedData      Boolean         @default(false)
+  documentId      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  FinancialAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category TransactionCategory? @relation(fields: [categoryId], references: [id])
+  document UploadedDocument?    @relation(fields: [documentId], references: [id])
+
+  @@index([userId, date])
+  @@index([accountId, date])
+}
+
+// ─── Ingestion ───────────────────────────────────────────────────────────────
+
+model UploadedDocument {
+  id           String       @id @default(cuid())
+  userId       String
+  fileName     String
+  mimeType     String
+  fileSize     Int
+  fileHash     String
+  storageKey   String
+  encryptionIv String?
+  status       UploadStatus @default(PENDING)
+  documentType String?
+  institution  String?
+  retentionDays Int?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  extractionResult ExtractionResult?
+  transactions     Transaction[]
+
+  @@unique([userId, fileHash])
+  @@index([userId, status])
+}
+
+model ExtractionResult {
+  id             String           @id @default(cuid())
+  documentId     String           @unique
+  status         ExtractionStatus @default(PENDING)
+  rawText        String?          @db.Text
+  extractedData  Json             @default("{}")
+  fieldConfidence Json            @default("{}")
+  institution    String?
+  reviewedAt     DateTime?
+  reviewedBy     String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  document UploadedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json     @default("{}")
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ─── Recurring, Income, Bills ────────────────────────────────────────────────
+
+model RecurringTransaction {
+  id             String                  @id @default(cuid())
+  userId         String
+  accountId      String?
+  categoryId     String?
+  name           String
+  typicalAmount  Decimal                 @db.Decimal(14, 2)
+  frequency      RecurringFrequency
+  nextExpectedDate DateTime?             @db.Date
+  variability    Decimal?                @db.Decimal(5, 4)
+  confidence     Decimal                 @db.Decimal(4, 3)
+  classification RecurringClassification @default(NECESSARY)
+  status         RecurringStatus         @default(DETECTED)
+  isSeedData     Boolean                 @default(false)
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account FinancialAccount? @relation(fields: [accountId], references: [id])
+}
+
+model IncomeSource {
+  id            String          @id @default(cuid())
+  userId        String
+  name          String
+  amount        Decimal         @db.Decimal(14, 2)
+  frequency     IncomeFrequency
+  status        IncomeStatus    @default(SCHEDULED)
+  expectedDate  DateTime?       @db.Date
+  receivedDate  DateTime?       @db.Date
+  targetAccountId String?
+  routingTag    RoutingTag?
+  isProvisional Boolean         @default(false)
+  isSeedData    Boolean         @default(false)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Bill {
+  id              String        @id @default(cuid())
+  userId          String
+  name            String
+  amount          Decimal       @db.Decimal(14, 2)
+  frequency       BillFrequency @default(MONTHLY)
+  dueDay          Int?
+  nextDueDate     DateTime?     @db.Date
+  accountId       String?
+  categorySlug    String?
+  isRequired      Boolean       @default(true)
+  autopayEnabled  Boolean       @default(false)
+  isSeedData      Boolean       @default(false)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Debt & Credit ───────────────────────────────────────────────────────────
+
+model Debt {
+  id                String   @id @default(cuid())
+  userId            String
+  accountId         String   @unique
+  name              String
+  currentBalance    Decimal  @db.Decimal(14, 2)
+  originalBalance   Decimal? @db.Decimal(14, 2)
+  interestRate      Decimal? @db.Decimal(8, 4)
+  minimumPayment    Decimal? @db.Decimal(14, 2)
+  targetPayoffDate  DateTime? @db.Date
+  isSeedData        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model CreditCard {
+  id                String   @id @default(cuid())
+  userId            String
+  accountId         String   @unique
+  issuer            String
+  currentBalance    Decimal  @default(0) @db.Decimal(14, 2)
+  creditLimit       Decimal  @db.Decimal(14, 2)
+  apr               Decimal? @db.Decimal(8, 4)
+  minimumPayment    Decimal? @db.Decimal(14, 2)
+  paymentDueDay     Int?
+  statementCloseDay Int?
+  promotionalRate   Decimal? @db.Decimal(8, 4)
+  promotionalEnds   DateTime? @db.Date
+  accountAgeMonths  Int?
+  isSeedData        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model CreditScoreSnapshot {
+  id        String   @id @default(cuid())
+  userId    String
+  score     Int
+  bureau    String?
+  asOfDate  DateTime @db.Date
+  notes     String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditGoal {
+  id          String   @id @default(cuid())
+  userId      String
+  targetScore Int
+  targetDate  DateTime? @db.Date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Goals & Budgets ─────────────────────────────────────────────────────────
+
+model SavingsGoal {
+  id            String   @id @default(cuid())
+  userId        String
+  type          GoalType
+  name          String
+  targetAmount  Decimal  @db.Decimal(14, 2)
+  currentAmount Decimal  @default(0) @db.Decimal(14, 2)
+  accountId     String?
+  targetDate    DateTime? @db.Date
+  isProtected   Boolean  @default(false)
+  isSeedData    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Budget {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  month     DateTime @db.Date
+  totalAmount Decimal @db.Decimal(14, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories BudgetCategory[]
+}
+
+model BudgetCategory {
+  id         String  @id @default(cuid())
+  budgetId   String
+  categoryId String
+  amount     Decimal @db.Decimal(14, 2)
+  spent      Decimal @default(0) @db.Decimal(14, 2)
+
+  budget   Budget              @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category TransactionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+// ─── Planning ────────────────────────────────────────────────────────────────
+
+model CalendarEvent {
+  id        String            @id @default(cuid())
+  userId    String
+  title     String
+  type      CalendarEventType
+  date      DateTime          @db.Date
+  amount    Decimal?          @db.Decimal(14, 2)
+  accountId String?
+  notes     String?
+  isSeedData Boolean          @default(false)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model CashFlowProjection {
+  id           String       @id @default(cuid())
+  userId       String
+  scenarioType ScenarioType @default(BASE)
+  date         DateTime     @db.Date
+  data         Json
+  createdAt    DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scenarioType, date])
+}
+
+model Scenario {
+  id         String       @id @default(cuid())
+  userId     String
+  type       ScenarioType
+  name       String
+  parameters Json         @default("{}")
+  isActive   Boolean      @default(true)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PlannedPurchase {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  maxAmount   Decimal  @db.Decimal(14, 2)
+  targetAmount Decimal? @db.Decimal(14, 2)
+  plannedDate DateTime? @db.Date
+  accountId   String?
+  priority    String?
+  isBusiness  Boolean  @default(false)
+  isCommitted Boolean  @default(true)
+  isSeedData  Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TripBudget {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  maxAmount   Decimal  @db.Decimal(14, 2)
+  startDate   DateTime? @db.Date
+  endDate     DateTime? @db.Date
+  isSeedData  Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Alerts & Recommendations ────────────────────────────────────────────────
+
+model Alert {
+  id        String        @id @default(cuid())
+  userId    String
+  type      AlertType
+  severity  AlertSeverity
+  title     String
+  message   String
+  isRead    Boolean       @default(false)
+  metadata  Json          @default("{}")
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+model Recommendation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  priority  Int      @default(0)
+  actionUrl String?
+  isDismissed Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

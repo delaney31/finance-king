@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-fk-navy: #0a1628;
+  --color-fk-charcoal: #1a1f2e;
+  --color-fk-gold: #c9a227;
+  --color-fk-risk-red: #e74c3c;
+  --color-fk-safe-green: #2ecc71;
+  --color-fk-muted: #8892a4;
+  --color-fk-border: #2a3142;
+  --color-fk-card: #12182a;
+  --color-fk-foreground: #f5f7fa;
+  --color-fk-background: #060d18;
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-dm-mono);
+}
+
+:root {
+  --fk-navy: #0a1628;
+  --fk-charcoal: #1a1f2e;
+  --fk-gold: #c9a227;
+  --fk-risk-red: #e74c3c;
+  --fk-safe-green: #2ecc71;
+  --fk-muted: #8892a4;
+  --fk-border: #2a3142;
+  --fk-card: #12182a;
+  --fk-foreground: #f5f7fa;
+  --fk-background: #060d18;
+}
+
+.light {
+  --fk-navy: #f8fafc;
+  --fk-charcoal: #e2e8f0;
+  --fk-gold: #a67c00;
+  --fk-muted: #64748b;
+  --fk-border: #cbd5e1;
+  --fk-card: #ffffff;
+  --fk-foreground: #0f172a;
+  --fk-background: #f1f5f9;
+}
+
+body {
+  background: var(--fk-background);
+  color: var(--fk-foreground);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+}
+
+.font-mono-amount {
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-card {
+  @apply rounded-xl border border-fk-border bg-fk-card p-4 md:p-6;
+}
+
+.risk-green { @apply text-fk-safe-green; }
+.risk-yellow { @apply text-yellow-400; }
+.risk-orange { @apply text-orange-400; }
+.risk-red { @apply text-fk-risk-red; }

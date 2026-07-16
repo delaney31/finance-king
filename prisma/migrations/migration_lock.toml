@@ -1,0 +1,3 @@
+# See https://www.prisma.io/docs/reference/api-reference/command-reference#migrate
+
+provider = "postgresql"
