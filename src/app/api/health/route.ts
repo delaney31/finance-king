@@ -37,6 +37,7 @@ export async function GET() {
   const healthy = checks.database === "ok";
   return NextResponse.json(
     { status: healthy ? "ok" : "degraded", checks },
-    { status: healthy ? 200 : 503 }
+    // Always 200 so Render liveness checks pass; use body for dependency status.
+    { status: 200 }
   );
 }

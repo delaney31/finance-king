@@ -13,7 +13,7 @@ services:
     region: oregon
     branch: main
     buildCommand: npm ci --include=dev && npm run render-build
-    startCommand: npm run render:start
+    startCommand: bash scripts/render-start.sh
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
