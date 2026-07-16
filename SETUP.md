@@ -1,18 +1,12 @@
-# Publish Finance King to its own GitHub repository
+# Finance King repository
 
-Finance King is designed as a **standalone repository**, separate from `warwick-bethel-retreat`.
+**Repository:** https://github.com/delaney31/finance-king
 
-## Step 1 — Create the empty repo on GitHub
+Finance King is a **standalone repository**, separate from `warwick-bethel-retreat`.
 
-1. Open **https://github.com/new**
-2. Repository name: **`finance-king`**
-3. Visibility: **Private** (recommended)
-4. **Do not** add a README, `.gitignore`, or license (the project already has these)
-5. Click **Create repository**
+## Publish `main` (if the GitHub repo is still empty)
 
-## Step 2 — Push this codebase
-
-From the project root:
+Grant your GitHub account write access, then from this project root:
 
 ```bash
 chmod +x scripts/push-to-github.sh
@@ -22,9 +16,16 @@ chmod +x scripts/push-to-github.sh
 Or manually:
 
 ```bash
-git remote add finance-king https://github.com/delaney31/finance-king.git
+git remote add finance-king https://github.com/delaney31/finance-king.git 2>/dev/null || true
 git push -u finance-king main
 ```
+
+**Alternative** — import from the backup branch (no local clone):
+
+1. Open https://github.com/delaney31/finance-king/import
+2. Source: `https://github.com/delaney31/warwick-bethel-retreat`
+3. Branch: `cursor/finance-king-standalone-4c39`
+4. Start import
 
 ## Step 3 — Local development
 
@@ -39,6 +40,6 @@ npm run dev
 
 **Demo login:** `tim@financeking.local` / `demo12345`
 
-## Repository URL
+## Cloud agent note
 
-After publishing: **https://github.com/delaney31/finance-king**
+The Cursor cloud agent can push to `warwick-bethel-retreat` but needs the **Cursor GitHub App** installed on `finance-king` (repo Settings → Integrations) to push directly to this repo.
