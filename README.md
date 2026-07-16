@@ -57,6 +57,16 @@ Open http://localhost:3000
 
 **Demo login:** `tim@financeking.local` / `demo12345`
 
+### Render (dev/staging — accessible from any machine)
+
+Deploy to Render with the included Blueprint:
+
+1. [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint** → connect this repo
+2. Add Cloudflare R2 (or S3) credentials for uploads — see [docs/render.md](docs/render.md)
+3. Seed once in the Render shell: `npm run db:seed`
+
+Your app will be at `https://finance-king.onrender.com` (or similar).
+
 ### Docker (full stack)
 
 ```bash
