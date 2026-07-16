@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Crown, Shield } from "lucide-react";
+import { Crown, Wallet } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -81,7 +81,7 @@ export function DashboardContent({
 
       {recommendation && (
         <Alert className="border-fk-gold/50 bg-fk-gold/10">
-          <Shield className="h-4 w-4 text-fk-gold" />
+          <Wallet className="text-fk-gold" />
           <AlertTitle>{recommendation.title}</AlertTitle>
           <AlertDescription>
             {recommendation.message}
