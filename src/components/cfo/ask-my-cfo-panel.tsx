@@ -147,8 +147,8 @@ export function AskMyCfoPanel() {
   const lowUsage = usage != null && usage.remainingToday < 10;
 
   const panelContent = (
-    <div className="flex h-full flex-col">
-      <div className="flex items-start justify-between border-b border-fk-border/60 px-4 py-3 pr-12">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="shrink-0 flex items-start justify-between border-b border-fk-border/60 px-4 py-3 pr-12">
         <div>
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <Bot className="h-5 w-5 text-fk-gold" aria-hidden />
@@ -178,7 +178,7 @@ export function AskMyCfoPanel() {
         </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 space-y-5">
         {messages.length === 0 && (
           <div className="space-y-3">
             <p className="text-sm text-fk-muted">Ask anything, or try:</p>
@@ -245,7 +245,7 @@ export function AskMyCfoPanel() {
         )}
       </div>
 
-      <div className="border-t border-fk-border/60 px-3 py-3">
+      <div className="shrink-0 border-t border-fk-border/60 px-3 py-3">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -289,8 +289,8 @@ export function AskMyCfoPanel() {
     <>
       {!isMobile && (
         <div
-          className={`hidden md:flex md:flex-col md:border-l md:border-fk-border/60 md:bg-fk-navy/90 md:transition-all md:duration-300 ${
-            open ? "md:w-[24rem] lg:w-[26rem] md:shrink-0" : "md:w-0 md:overflow-hidden md:border-0"
+          className={`hidden md:flex md:h-full md:min-h-0 md:flex-col md:border-l md:border-fk-border/60 md:bg-fk-navy/90 md:transition-all md:duration-300 ${
+            open ? "md:w-[24rem] lg:w-[26rem] md:shrink-0 md:overflow-hidden" : "md:w-0 md:overflow-hidden md:border-0"
           }`}
         >
           {open && panelContent}
@@ -299,7 +299,7 @@ export function AskMyCfoPanel() {
 
       {isMobile && (
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetContent side="bottom" className="h-[92vh] p-0">
+          <SheetContent side="bottom" className="h-[92vh] overflow-hidden p-0">
             {panelContent}
           </SheetContent>
         </Sheet>
