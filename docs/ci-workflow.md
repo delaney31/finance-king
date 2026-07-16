@@ -1,3 +1,11 @@
+# GitHub Actions CI workflow
+
+After your first push to `finance-king`, add this file as `.github/workflows/ci.yml` using either:
+
+- GitHub web UI (needs a token/session with **workflow** scope), or
+- `gh auth refresh -s workflow` then commit and push the workflow file
+
+```yaml
 name: CI
 
 on:
@@ -40,3 +48,4 @@ jobs:
       - run: npm test
       - run: npm run type-check
       - run: npm run build
+```

@@ -20,6 +20,8 @@ git remote add finance-king https://github.com/delaney31/finance-king.git 2>/dev
 git push -u finance-king main
 ```
 
+> **OAuth note:** If push fails with `refusing to allow an OAuth App to create or update workflow`, the repo intentionally omits `.github/workflows/` on first push. Add CI later from [docs/ci-workflow.md](docs/ci-workflow.md), or run `gh auth refresh -s workflow` before pushing workflow files.
+
 **Alternative** — import from the backup branch (no local clone):
 
 1. Open https://github.com/delaney31/finance-king/import
