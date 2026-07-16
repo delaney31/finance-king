@@ -25,10 +25,27 @@ export default async function DashboardPage() {
   return (
     <DashboardContent
       dashboard={dashboard}
-      alerts={alerts}
+      alerts={alerts.map((a) => ({
+        id: a.id,
+        title: a.title,
+        message: a.message,
+        severity: a.severity,
+      }))}
       pendingUploads={uploads.length}
-      upcomingBills={bills}
-      recommendation={recommendation}
+      upcomingBills={bills.map((b) => ({
+        id: b.id,
+        name: b.name,
+        amount: Number(b.amount),
+      }))}
+      recommendation={
+        recommendation
+          ? {
+              title: recommendation.title,
+              message: recommendation.message,
+              actionUrl: recommendation.actionUrl,
+            }
+          : null
+      }
       accounts={engineSnapshot.accounts}
     />
   );

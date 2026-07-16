@@ -25,7 +25,7 @@ interface DashboardContentProps {
   dashboard: DashboardSnapshot;
   alerts: { id: string; title: string; message: string; severity: string }[];
   pendingUploads: number;
-  upcomingBills: { id: string; name: string; amount: unknown; nextDueDate: Date | null }[];
+  upcomingBills: { id: string; name: string; amount: number }[];
   recommendation: { title: string; message: string; actionUrl: string | null } | null;
   accounts: { id: string; nickname: string; currentBalance: number; routingTag: string }[];
 }
@@ -187,7 +187,7 @@ export function DashboardContent({
             {upcomingBills.map((b) => (
               <div key={b.id} className="flex justify-between text-sm">
                 <span className="text-fk-muted">{b.name}</span>
-                <span className="font-mono-amount">{formatMoney(Number(b.amount))}</span>
+                <span className="font-mono-amount">{formatMoney(b.amount)}</span>
               </div>
             ))}
           </CardContent>
