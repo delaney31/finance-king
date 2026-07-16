@@ -36,19 +36,21 @@ const navItems = [
 
 export function DashboardNav() {
   const pathname = usePathname();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const themeIcon =
-    mounted && theme === "dark" ? (
-      <Sun className="h-4 w-4" />
-    ) : (
-      <Moon className="h-4 w-4" />
-    );
+  const isDark = (resolvedTheme ?? theme) === "dark";
+  const themeIcon = !mounted ? (
+    <Moon className="h-4 w-4" />
+  ) : isDark ? (
+    <Sun className="h-4 w-4" />
+  ) : (
+    <Moon className="h-4 w-4" />
+  );
 
   return (
     <>
@@ -82,7 +84,7 @@ export function DashboardNav() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            onClick={() => setTheme(isDark ? "light" : "dark")}
             className="w-full justify-start"
           >
             {themeIcon}

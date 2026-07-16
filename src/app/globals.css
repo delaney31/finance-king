@@ -1,21 +1,7 @@
 @import "tailwindcss";
 
-@theme inline {
-  --color-fk-navy: #0a1628;
-  --color-fk-charcoal: #1a1f2e;
-  --color-fk-gold: #c9a227;
-  --color-fk-risk-red: #e74c3c;
-  --color-fk-safe-green: #2ecc71;
-  --color-fk-muted: #8892a4;
-  --color-fk-border: #2a3142;
-  --color-fk-card: #12182a;
-  --color-fk-foreground: #f5f7fa;
-  --color-fk-background: #060d18;
-  --font-sans: var(--font-dm-sans);
-  --font-mono: var(--font-dm-mono);
-}
-
-:root {
+:root,
+.dark {
   --fk-navy: #0a1628;
   --fk-charcoal: #1a1f2e;
   --fk-gold: #c9a227;
@@ -32,11 +18,29 @@
   --fk-navy: #f8fafc;
   --fk-charcoal: #e2e8f0;
   --fk-gold: #a67c00;
+  --fk-risk-red: #dc2626;
+  --fk-safe-green: #16a34a;
   --fk-muted: #64748b;
   --fk-border: #cbd5e1;
   --fk-card: #ffffff;
   --fk-foreground: #0f172a;
   --fk-background: #f1f5f9;
+}
+
+@theme inline {
+  --color-fk-navy: var(--fk-navy);
+  --color-fk-charcoal: var(--fk-charcoal);
+  --color-fk-gold: var(--fk-gold);
+  --color-fk-risk-red: var(--fk-risk-red);
+  --color-fk-safe-green: var(--fk-safe-green);
+  --color-fk-muted: var(--fk-muted);
+  --color-fk-border: var(--fk-border);
+  --color-fk-card: var(--fk-card);
+  --color-fk-card-foreground: var(--fk-foreground);
+  --color-fk-foreground: var(--fk-foreground);
+  --color-fk-background: var(--fk-background);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-dm-mono);
 }
 
 body {
