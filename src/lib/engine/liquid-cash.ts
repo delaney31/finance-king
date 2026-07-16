@@ -1,15 +1,26 @@
 import { decimalToNumber, sumMoney, toDecimal } from "@/lib/utils/money";
 import type { EngineAccount, EngineSnapshot } from "./types";
 
+export function isCreditAccount(accountType: string): boolean {
+  return ["CREDIT_CARD", "VEHICLE_LOAN", "MORTGAGE", "PERSONAL_LOAN"].includes(accountType);
+}
+
+/** Spendable cash uses available balance when set (excludes pending deposits). */
+export function spendableBalance(account: EngineAccount): number {
+  if (!account.isLiquid || isCreditAccount(account.accountType)) {
+    return account.currentBalance;
+  }
+  if (account.availableBalance != null) {
+    return account.availableBalance;
+  }
+  return account.currentBalance;
+}
+
 export function computeLiquidCash(accounts: EngineAccount[]): number {
   const liquid = accounts
     .filter((a) => a.isLiquid && !isCreditAccount(a.accountType))
-    .map((a) => a.currentBalance);
+    .map((a) => spendableBalance(a));
   return decimalToNumber(sumMoney(liquid));
-}
-
-export function isCreditAccount(accountType: string): boolean {
-  return ["CREDIT_CARD", "VEHICLE_LOAN", "MORTGAGE", "PERSONAL_LOAN"].includes(accountType);
 }
 
 export function computeTotalDebt(accounts: EngineAccount[]): number {
@@ -50,7 +61,7 @@ export function computeOperatingCash(
   const filtered = accounts.filter(
     (a) => a.isLiquid && routingTags.includes(a.routingTag) && !isCreditAccount(a.accountType)
   );
-  return decimalToNumber(sumMoney(filtered.map((a) => a.currentBalance)));
+  return decimalToNumber(sumMoney(filtered.map((a) => spendableBalance(a))));
 }
 
 export function getAccountByTag(accounts: EngineAccount[], tag: string): EngineAccount[] {

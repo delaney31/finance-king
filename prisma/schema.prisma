@@ -75,6 +75,13 @@ enum TransactionType {
   SAVINGS
 }
 
+enum TransactionClearanceStatus {
+  CLEARED
+  PENDING
+  PROJECTED
+  CANCELLED
+}
+
 enum IncomeStatus {
   SCHEDULED
   RECEIVED
@@ -249,6 +256,8 @@ model User {
   recommendations       Recommendation[]
   auditLogs             AuditLog[]
   routingRules          AccountRoutingRule[]
+  financialStateSnapshots FinancialStateSnapshot[]
+  transactionFingerprints TransactionFingerprint[]
 }
 
 model Account {
@@ -381,6 +390,8 @@ model FinancialAccount {
   routingTag        RoutingTag    @default(PERSONAL)
   accountLastFour   String?
   currentBalance    Decimal       @default(0) @db.Decimal(14, 2)
+  availableBalance  Decimal?      @db.Decimal(14, 2)
+  pendingBalance    Decimal?      @db.Decimal(14, 2)
   minimumTargetBalance Decimal    @default(0) @db.Decimal(14, 2)
   protectedBalance  Decimal       @default(0) @db.Decimal(14, 2)
   creditLimit       Decimal?      @db.Decimal(14, 2)
@@ -488,6 +499,8 @@ model Transaction {
   isTransfer      Boolean         @default(false)
   transferPairId  String?
   isPending       Boolean         @default(false)
+  clearanceStatus TransactionClearanceStatus @default(CLEARED)
+  transactionFingerprint String?
   clearedAt       DateTime?
   confidence      Decimal?        @db.Decimal(4, 3)
   isSeedData      Boolean         @default(false)
@@ -518,6 +531,9 @@ model UploadedDocument {
   status       UploadStatus @default(PENDING)
   documentType String?
   institution  String?
+  matchedAccountId String?
+  importSummary Json        @default("{}")
+  undoPayload   Json?
   retentionDays Int?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -538,6 +554,8 @@ model ExtractionResult {
   extractedData  Json             @default("{}")
   fieldConfidence Json            @default("{}")
   institution    String?
+  documentClassification Json     @default("{}")
+  accountMatchResult Json          @default("{}")
   reviewedAt     DateTime?
   reviewedBy     String?
   createdAt      DateTime         @default(now())
@@ -841,4 +859,37 @@ model Recommendation {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Upload pipeline & financial state ───────────────────────────────────────
+
+model FinancialStateSnapshot {
+  id                String   @id @default(cuid())
+  userId            String
+  asOfDate          DateTime @db.Date
+  payload           Json
+  safeToSpendToday  Decimal  @db.Decimal(14, 2)
+  monthEndBuffer    Decimal  @db.Decimal(14, 2)
+  creditUtilization Decimal  @db.Decimal(8, 4)
+  totalLiquidCash   Decimal  @db.Decimal(14, 2)
+  createdAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model TransactionFingerprint {
+  id            String   @id @default(cuid())
+  userId        String
+  accountId     String
+  fingerprint   String
+  transactionId String?
+  documentId    String?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+  @@index([accountId])
 }

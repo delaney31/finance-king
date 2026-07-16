@@ -7,6 +7,8 @@ export interface EngineAccount {
   accountType: string;
   routingTag: string;
   currentBalance: number;
+  availableBalance?: number | null;
+  pendingBalance?: number | null;
   minimumTargetBalance: number;
   protectedBalance: number;
   creditLimit?: number | null;

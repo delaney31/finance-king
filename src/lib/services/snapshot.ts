@@ -62,6 +62,8 @@ export async function getEngineSnapshot(userId: string): Promise<EngineSnapshot>
       accountType: a.accountType,
       routingTag: a.routingTag,
       currentBalance: Number(a.currentBalance),
+      availableBalance: a.availableBalance != null ? Number(a.availableBalance) : null,
+      pendingBalance: a.pendingBalance != null ? Number(a.pendingBalance) : null,
       minimumTargetBalance: Number(a.minimumTargetBalance),
       protectedBalance: Number(a.protectedBalance),
       creditLimit: a.creditLimit ? Number(a.creditLimit) : null,

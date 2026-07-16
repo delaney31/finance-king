@@ -5,27 +5,43 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { formatMoney } from "@/lib/utils/money";
+import { UploadReviewPanel } from "@/components/uploads/upload-review-panel";
+import type { ImportSummary } from "@/lib/uploads/types";
 
 interface UploadItem {
   id: string;
   fileName: string;
   status: string;
   institution: string | null;
+  documentType: string | null;
   createdAt: string;
-  extractionResult?: {
-    extractedData: Record<string, unknown>;
-    fieldConfidence: Record<string, number>;
-  } | null;
+}
+
+interface AccountOption {
+  id: string;
+  nickname: string;
+  institution: string;
+  accountType: string;
 }
 
 const PROCESSING_STATUSES = new Set(["PENDING", "PROCESSING"]);
 
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: "Uploading",
+  PROCESSING: "Analyzing",
+  REVIEW_REQUIRED: "Review required",
+  CONFIRMED: "Confirmed",
+  REJECTED: "Unsupported",
+  DUPLICATE: "Duplicate",
+};
+
 export function UploadsContent({
   initialUploads,
+  accounts,
   storageReady,
 }: {
   initialUploads: UploadItem[];
+  accounts: AccountOption[];
   storageReady: boolean;
 }) {
   const [uploads, setUploads] = useState(initialUploads);
@@ -84,10 +100,10 @@ export function UploadsContent({
     setUploading(false);
   }, [storageReady]);
 
-  async function confirmUpload(id: string) {
-    await fetch(`/api/v1/uploads/${id}/confirm`, { method: "POST" });
-    setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, status: "CONFIRMED" } : u)));
-    setReviewId(null);
+  function handleImportConfirmed(id: string, _summary: ImportSummary) {
+    setUploads((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, status: "CONFIRMED" } : u))
+    );
   }
 
   const reviewItem = uploads.find((u) => u.id === reviewId);
@@ -115,7 +131,10 @@ export function UploadsContent({
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
           >
-            <p className="text-fk-muted">Drag & drop PNG, JPG, PDF, or CSV files</p>
+            <p className="text-fk-muted">Drag & drop bank screenshots, credit card statements, or PDFs</p>
+            <p className="mt-1 text-xs text-fk-muted">
+              Upload → Analyzing → Review → Confirm and recalculate
+            </p>
             <input
               type="file"
               accept=".png,.jpg,.jpeg,.pdf,.csv,.heic"
@@ -138,14 +157,17 @@ export function UploadsContent({
             <div key={u.id} className="flex items-center justify-between border-b border-fk-border py-2 text-sm">
               <div>
                 <p>{u.fileName}</p>
-                <p className="text-xs text-fk-muted">{u.institution ?? "Unknown institution"}</p>
+                <p className="text-xs text-fk-muted">
+                  {u.institution ?? "Unknown institution"}
+                  {u.documentType ? ` · ${u.documentType.replace(/_/g, " ").toLowerCase()}` : ""}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={u.status === "CONFIRMED" ? "success" : u.status === "REVIEW_REQUIRED" ? "warning" : "outline"}>
-                  {u.status}
+                  {STATUS_LABELS[u.status] ?? u.status}
                 </Badge>
                 {u.status === "REVIEW_REQUIRED" && (
-                  <Button size="sm" variant="outline" onClick={() => setReviewId(u.id)}>Review</Button>
+                  <Button size="sm" variant="outline" onClick={() => setReviewId(u.id)}>Review extracted data</Button>
                 )}
               </div>
             </div>
@@ -153,25 +175,13 @@ export function UploadsContent({
         </CardContent>
       </Card>
 
-      {reviewItem?.extractionResult && (
-        <Card className="border-fk-gold/40">
-          <CardHeader><CardTitle>Review Extraction — {reviewItem.fileName}</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {Object.entries(reviewItem.extractionResult.fieldConfidence).map(([field, conf]) => (
-              <div key={field} className="flex justify-between text-sm">
-                <span>{field}</span>
-                <Badge variant={conf < 0.7 ? "warning" : "success"}>{(conf * 100).toFixed(0)}% confidence</Badge>
-              </div>
-            ))}
-            {"balance" in (reviewItem.extractionResult.extractedData as object) && (
-              <p>Balance: {formatMoney(Number((reviewItem.extractionResult.extractedData as { balance?: { value: string } }).balance?.value ?? 0))}</p>
-            )}
-            <div className="flex gap-2">
-              <Button onClick={() => confirmUpload(reviewItem.id)}>Confirm & Save</Button>
-              <Button variant="outline" onClick={() => setReviewId(null)}>Cancel</Button>
-            </div>
-          </CardContent>
-        </Card>
+      {reviewId && reviewItem && (
+        <UploadReviewPanel
+          documentId={reviewId}
+          accounts={accounts}
+          onClose={() => setReviewId(null)}
+          onConfirmed={(summary) => handleImportConfirmed(reviewId, summary)}
+        />
       )}
     </div>
   );

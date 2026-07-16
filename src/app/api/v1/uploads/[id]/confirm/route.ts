@@ -1,8 +1,35 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { confirmImport } from "@/lib/uploads/confirm-import";
+import type { ConfirmImportInput } from "@/lib/uploads/types";
 
 export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const body = (await req.json()) as Omit<ConfirmImportInput, "documentId">;
+  const input: ConfirmImportInput = { ...body, documentId: id };
+
+  try {
+    const summary = await confirmImport(session.user.id, input);
+    return NextResponse.json(summary);
+  } catch (error) {
+    console.error("confirm import failed:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Import failed" },
+      { status: 400 }
+    );
+  }
+}
+
+export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -14,55 +41,10 @@ export async function POST(
   const { id } = await params;
   const doc = await prisma.uploadedDocument.findFirst({
     where: { id, userId: session.user.id },
-    include: { extractionResult: true },
   });
-
-  if (!doc) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!doc?.importSummary) {
+    return NextResponse.json({ error: "No import summary" }, { status: 404 });
   }
 
-  const extracted = doc.extractionResult?.extractedData as {
-    balance?: { value: string };
-    institution?: string;
-  } | null;
-
-  if (extracted?.balance?.value) {
-    const account = await prisma.financialAccount.findFirst({
-      where: {
-        userId: session.user.id,
-        institution: extracted.institution ?? doc.institution ?? undefined,
-      },
-    });
-
-    if (account) {
-      await prisma.accountBalanceSnapshot.create({
-        data: {
-          accountId: account.id,
-          balance: parseFloat(extracted.balance.value),
-          asOfDate: new Date(),
-          source: "OCR",
-        },
-      });
-      await prisma.financialAccount.update({
-        where: { id: account.id },
-        data: { currentBalance: parseFloat(extracted.balance.value) },
-      });
-    }
-  }
-
-  await prisma.uploadedDocument.update({
-    where: { id },
-    data: { status: "CONFIRMED" },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      userId: session.user.id,
-      action: "DOCUMENT_CONFIRMED",
-      entityType: "UploadedDocument",
-      entityId: id,
-    },
-  });
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json(doc.importSummary);
 }
