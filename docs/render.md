@@ -21,7 +21,9 @@ Host the full stack on [Render](https://render.com) for a stable URL you can ope
 2. Open [dashboard.render.com](https://dashboard.render.com) → **New** → **Blueprint**.
 3. Connect the `finance-king` repository, branch `main`.
 4. Render reads `render.yaml` at the repo root and provisions all services.
-5. Wait for the first deploy to finish (migrations run automatically via `preDeployCommand`).
+5. Wait for the first deploy to finish (migrations run during the build step).
+
+> **Note:** Render's free web tier does not support `preDeployCommand`, so `prisma migrate deploy` runs inside `npm run render-build` instead.
 
 Your app URL will look like: `https://finance-king.onrender.com`
 
@@ -83,8 +85,7 @@ If you prefer creating services by hand:
 ### Web service
 
 - **Runtime:** Node
-- **Build:** `npm ci --include=dev && npm run render-build`
-- **Pre-deploy:** `npx prisma migrate deploy`
+- **Build:** `npm ci --include=dev && npm run render-build` (includes `prisma migrate deploy`)
 - **Start:** `npm run render:start`
 - **Health check path:** `/api/health`
 

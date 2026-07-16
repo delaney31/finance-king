@@ -13,7 +13,6 @@ services:
     region: oregon
     branch: main
     buildCommand: npm ci --include=dev && npm run render-build
-    preDeployCommand: npx prisma migrate deploy
     startCommand: npm run render:start
     healthCheckPath: /api/health
     envVars:
