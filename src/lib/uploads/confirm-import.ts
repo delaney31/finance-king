@@ -3,6 +3,11 @@ import { prisma } from "@/lib/db";
 import { accountTypeForDocument } from "./classify-document";
 import { matchExistingAccount, transactionFingerprint, type MatchableAccount } from "./match-account";
 import {
+  createEmptyExtracted,
+  normalizeExtractedData,
+  normalizeMatchResult,
+} from "./normalize-extracted";
+import {
   buildImportSummaryMessage,
   recalculateFinancialState,
 } from "./recalculate-financial-state";
@@ -46,9 +51,8 @@ export async function buildImportReview(documentId: string, userId: string): Pro
     where: { id: documentId, userId },
     include: { extractionResult: true },
   });
-  if (!doc?.extractionResult) return null;
+  if (!doc) return null;
 
-  const extracted = doc.extractionResult.extractedData as unknown as ExtractedFinancialData;
   const accounts: MatchableAccount[] = await prisma.financialAccount.findMany({
     where: { userId },
     select: {
@@ -63,31 +67,66 @@ export async function buildImportReview(documentId: string, userId: string): Pro
     },
   });
 
-  const match =
-    (doc.extractionResult.accountMatchResult as unknown as ImportReviewPayload["match"]) ??
-    matchExistingAccount(extracted, accounts);
+  let extracted: ExtractedFinancialData;
+  if (doc.extractionResult) {
+    extracted = normalizeExtractedData(
+      doc.extractionResult.extractedData,
+      doc.extractionResult.rawText
+    );
+  } else {
+    extracted = createEmptyExtracted();
+    await prisma.extractionResult.upsert({
+      where: { documentId },
+      create: {
+        documentId,
+        status: "FAILED",
+        rawText: "",
+        extractedData: extracted as object,
+        fieldConfidence: {},
+        documentClassification: extracted.classification as object,
+        accountMatchResult: matchExistingAccount(extracted, accounts) as object,
+      },
+      update: {
+        status: "FAILED",
+        extractedData: extracted as object,
+        fieldConfidence: {},
+      },
+    });
+  }
+
+  const match = normalizeMatchResult(
+    doc.extractionResult?.accountMatchResult,
+    extracted,
+    accounts
+  );
 
   const duplicateTransactions: ImportReviewPayload["duplicateTransactions"] = [];
   const accountIdForDupes = match.accountId ?? match.candidates[0]?.accountId;
-  if (accountIdForDupes) {
-    for (let index = 0; index < extracted.transactions.length; index++) {
-      const tx = extracted.transactions[index];
-      const fp = transactionFingerprint({
-        accountId: accountIdForDupes,
-        date: tx.date,
-        amount: tx.amount,
-        description: tx.description,
-      });
-      const existing = await prisma.transactionFingerprint.findUnique({
-        where: { userId_fingerprint: { userId, fingerprint: fp } },
-      });
-      if (existing) {
-        duplicateTransactions.push({
-          index,
-          reason: "matching transaction fingerprint",
-          existingId: existing.transactionId ?? undefined,
+  const transactions = extracted.transactions ?? [];
+
+  if (accountIdForDupes && transactions.length > 0) {
+    try {
+      for (let index = 0; index < transactions.length; index++) {
+        const tx = transactions[index];
+        const fp = transactionFingerprint({
+          accountId: accountIdForDupes,
+          date: tx.date,
+          amount: tx.amount,
+          description: tx.description,
         });
+        const existing = await prisma.transactionFingerprint.findUnique({
+          where: { userId_fingerprint: { userId, fingerprint: fp } },
+        });
+        if (existing) {
+          duplicateTransactions.push({
+            index,
+            reason: "matching transaction fingerprint",
+            existingId: existing.transactionId ?? undefined,
+          });
+        }
       }
+    } catch (error) {
+      console.warn("Duplicate fingerprint check skipped:", error);
     }
   }
 

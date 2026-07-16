@@ -3,6 +3,7 @@ import { getOcrProvider } from "@/lib/ocr/provider";
 import { getStorage } from "@/lib/storage/provider";
 import { buildExtractedFinancialData } from "@/lib/uploads/extract-fields";
 import { matchExistingAccount } from "@/lib/uploads/match-account";
+import { createEmptyExtracted } from "@/lib/uploads/normalize-extracted";
 
 export async function processDocument(documentId: string) {
   const doc = await prisma.uploadedDocument.findUnique({
@@ -13,6 +14,20 @@ export async function processDocument(documentId: string) {
   await prisma.uploadedDocument.update({
     where: { id: documentId },
     data: { status: "PROCESSING" },
+  });
+
+  const accounts = await prisma.financialAccount.findMany({
+    where: { userId: doc.userId },
+    select: {
+      id: true,
+      nickname: true,
+      institution: true,
+      accountType: true,
+      accountLastFour: true,
+      designation: true,
+      routingTag: true,
+      businessEntityId: true,
+    },
   });
 
   try {
@@ -38,21 +53,7 @@ export async function processDocument(documentId: string) {
       extracted.fieldConfidence.currentBalance = ocrResult.balance.confidence;
     }
 
-    const accounts = await prisma.financialAccount.findMany({
-      where: { userId: doc.userId },
-      select: {
-        id: true,
-        nickname: true,
-        institution: true,
-        accountType: true,
-        accountLastFour: true,
-        designation: true,
-        routingTag: true,
-        businessEntityId: true,
-      },
-    });
     const match = matchExistingAccount(extracted, accounts);
-
     const lowConfidence = Object.values(extracted.fieldConfidence).some((c) => c < 0.7);
 
     await prisma.extractionResult.upsert({
@@ -103,10 +104,67 @@ export async function processDocument(documentId: string) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Processing failed";
+    console.error(`Document ${documentId} processing failed:`, error);
+
+    let rawText = "";
+    try {
+      const storage = getStorage();
+      const buffer = await storage.download(doc.storageKey);
+      if (doc.mimeType === "text/csv") {
+        rawText = buffer.toString("utf-8");
+      }
+    } catch {
+      // Storage unavailable — manual entry only
+    }
+
+    const extracted = rawText.trim()
+      ? buildExtractedFinancialData(rawText)
+      : createEmptyExtracted();
+    extracted.fieldConfidence.processingError = 0;
+
+    const match = matchExistingAccount(extracted, accounts);
+
+    await prisma.extractionResult.upsert({
+      where: { documentId },
+      create: {
+        documentId,
+        status: "FAILED",
+        rawText: rawText || message,
+        extractedData: extracted as object,
+        fieldConfidence: extracted.fieldConfidence,
+        institution: extracted.institution,
+        documentClassification: extracted.classification as object,
+        accountMatchResult: match as object,
+      },
+      update: {
+        status: "FAILED",
+        rawText: rawText || message,
+        extractedData: extracted as object,
+        fieldConfidence: extracted.fieldConfidence,
+        documentClassification: extracted.classification as object,
+        accountMatchResult: match as object,
+      },
+    });
+
     await prisma.uploadedDocument.update({
       where: { id: documentId },
-      data: { status: "REVIEW_REQUIRED" },
+      data: {
+        status: "REVIEW_REQUIRED",
+        documentType: extracted.documentType,
+        institution: extracted.institution,
+        matchedAccountId: match.accountId,
+      },
     });
-    throw error;
+
+    await prisma.auditLog.create({
+      data: {
+        userId: doc.userId,
+        action: "DOCUMENT_PROCESS_FAILED",
+        entityType: "UploadedDocument",
+        entityId: documentId,
+        metadata: { error: message },
+      },
+    });
   }
 }
