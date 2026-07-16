@@ -27,13 +27,21 @@ interface AccountOption {
 const PROCESSING_STATUSES = new Set(["PENDING", "PROCESSING"]);
 
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Uploading",
+  PENDING: "Queued",
   PROCESSING: "Analyzing",
   REVIEW_REQUIRED: "Review required",
   CONFIRMED: "Confirmed",
   REJECTED: "Unsupported",
   DUPLICATE: "Duplicate",
 };
+
+async function apiFetch(url: string, init?: RequestInit) {
+  const res = await fetch(url, { credentials: "include", redirect: "manual", ...init });
+  if (res.type === "opaqueredirect" || res.status === 307 || res.status === 302) {
+    throw new Error("Session expired — refresh and sign in again.");
+  }
+  return res;
+}
 
 export function UploadsContent({
   initialUploads,
@@ -48,20 +56,86 @@ export function UploadsContent({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const uploadsRef = useRef(uploads);
+  const processingIdsRef = useRef(processingIds);
+  const pollAttemptsRef = useRef<Record<string, number>>({});
+  const processStartedRef = useRef<Set<string>>(new Set());
   uploadsRef.current = uploads;
+  processingIdsRef.current = processingIds;
+
+  const refreshUpload = useCallback(async (id: string) => {
+    const res = await apiFetch(`/api/v1/uploads/${id}`);
+    if (!res.ok) return null;
+    return (await res.json()) as UploadItem;
+  }, []);
+
+  const runProcessing = useCallback(async (id: string) => {
+    if (processStartedRef.current.has(id)) return;
+    processStartedRef.current.add(id);
+    setProcessingIds((prev) => new Set(prev).add(id));
+
+    try {
+      const res = await apiFetch(`/api/v1/uploads/${id}/process`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      const updated = await refreshUpload(id);
+      if (updated) {
+        setUploads((prev) => prev.map((u) => (u.id === id ? updated : u)));
+      } else if (data.status) {
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === id
+              ? {
+                  ...u,
+                  status: data.status,
+                  institution: data.institution ?? u.institution,
+                  documentType: data.documentType ?? u.documentType,
+                }
+              : u
+          )
+        );
+      }
+    } catch (err) {
+      console.error("Processing failed:", err);
+      setUploads((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, status: "REVIEW_REQUIRED" } : u))
+      );
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [refreshUpload]);
+
+  useEffect(() => {
+    for (const upload of initialUploads) {
+      if (PROCESSING_STATUSES.has(upload.status)) {
+        void runProcessing(upload.id);
+      }
+    }
+  }, [initialUploads, runProcessing]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
       const pending = uploadsRef.current.filter((u) => PROCESSING_STATUSES.has(u.status));
       if (pending.length === 0) return;
 
+      for (const item of pending) {
+        pollAttemptsRef.current[item.id] = (pollAttemptsRef.current[item.id] ?? 0) + 1;
+
+        if (
+          pollAttemptsRef.current[item.id] >= 2 &&
+          !processStartedRef.current.has(item.id) &&
+          !processingIdsRef.current.has(item.id)
+        ) {
+          void runProcessing(item.id);
+        }
+      }
+
       const updates = await Promise.all(
-        pending.map(async (u) => {
-          const res = await fetch(`/api/v1/uploads/${u.id}`);
-          if (!res.ok) return u;
-          return (await res.json()) as UploadItem;
-        })
+        pending.map(async (u) => refreshUpload(u.id).then((item) => item ?? u))
       );
 
       setUploads((prev) => {
@@ -74,7 +148,7 @@ export function UploadsContent({
     }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshUpload, runProcessing]);
 
   const onDrop = useCallback(async (files: FileList | null) => {
     if (!files?.length) return;
@@ -89,16 +163,19 @@ export function UploadsContent({
     for (const file of Array.from(files)) {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch("/api/v1/uploads", { method: "POST", body: form });
+      const res = await apiFetch("/api/v1/uploads", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setUploads((prev) => [data as UploadItem, ...prev]);
+        const item = data as UploadItem;
+        setUploads((prev) => [item, ...prev]);
+        processStartedRef.current.delete(item.id);
+        void runProcessing(item.id);
       } else {
         setError(data.error ?? `Upload failed for ${file.name}`);
       }
     }
     setUploading(false);
-  }, [storageReady]);
+  }, [storageReady, runProcessing]);
 
   function handleImportConfirmed(id: string, _summary: ImportSummary) {
     setUploads((prev) =>
@@ -143,7 +220,7 @@ export function UploadsContent({
               disabled={!storageReady || uploading}
               onChange={(e) => onDrop(e.target.files)}
             />
-            {uploading && <p className="mt-2 text-sm text-fk-gold">Uploading...</p>}
+            {uploading && <p className="mt-2 text-sm text-fk-gold">Uploading…</p>}
             {error && <p className="mt-2 text-sm text-fk-risk-red">{error}</p>}
           </div>
         </CardContent>
@@ -153,25 +230,57 @@ export function UploadsContent({
         <CardHeader><CardTitle>Upload Queue</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {uploads.length === 0 && <p className="text-fk-muted">No uploads yet.</p>}
-          {uploads.map((u) => (
-            <div key={u.id} className="flex items-center justify-between border-b border-fk-border py-2 text-sm">
-              <div>
-                <p>{u.fileName}</p>
-                <p className="text-xs text-fk-muted">
-                  {u.institution ?? "Unknown institution"}
-                  {u.documentType ? ` · ${u.documentType.replace(/_/g, " ").toLowerCase()}` : ""}
-                </p>
+          {uploads.map((u) => {
+            const isProcessing = processingIds.has(u.id) || PROCESSING_STATUSES.has(u.status);
+            return (
+              <div key={u.id} className="flex items-center justify-between border-b border-fk-border py-2 text-sm">
+                <div>
+                  <p>{u.fileName}</p>
+                  <p className="text-xs text-fk-muted">
+                    {u.institution ?? "Unknown institution"}
+                    {u.documentType ? ` · ${u.documentType.replace(/_/g, " ").toLowerCase()}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      u.status === "CONFIRMED"
+                        ? "success"
+                        : u.status === "REVIEW_REQUIRED"
+                          ? "warning"
+                          : "outline"
+                    }
+                  >
+                    {isProcessing && u.status !== "REVIEW_REQUIRED"
+                      ? "Analyzing…"
+                      : STATUS_LABELS[u.status] ?? u.status}
+                  </Badge>
+                  {u.status === "REVIEW_REQUIRED" && (
+                    <Button size="sm" variant="outline" onClick={() => setReviewId(u.id)}>
+                      Review extracted data
+                    </Button>
+                  )}
+                  {PROCESSING_STATUSES.has(u.status) && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          processStartedRef.current.delete(u.id);
+                          void runProcessing(u.id);
+                        }}
+                      >
+                        Retry
+                      </Button>
+                      <Button size="sm" onClick={() => setReviewId(u.id)}>
+                        Review now
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={u.status === "CONFIRMED" ? "success" : u.status === "REVIEW_REQUIRED" ? "warning" : "outline"}>
-                  {STATUS_LABELS[u.status] ?? u.status}
-                </Badge>
-                {u.status === "REVIEW_REQUIRED" && (
-                  <Button size="sm" variant="outline" onClick={() => setReviewId(u.id)}>Review extracted data</Button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </CardContent>
       </Card>
 

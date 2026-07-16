@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { processDocument } from "@/workers/process-upload";
 
+export const maxDuration = 60;
+
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -22,13 +24,26 @@ export async function POST(
 
   try {
     await processDocument(id);
-    return NextResponse.json({ success: true, status: "REVIEW_REQUIRED" });
+    const updated = await prisma.uploadedDocument.findFirst({
+      where: { id, userId: session.user.id },
+    });
+    return NextResponse.json({
+      success: true,
+      status: updated?.status ?? "REVIEW_REQUIRED",
+      institution: updated?.institution ?? null,
+      documentType: updated?.documentType ?? null,
+    });
   } catch (error) {
     console.error("Reprocess failed:", error);
+    const updated = await prisma.uploadedDocument.findFirst({
+      where: { id, userId: session.user.id },
+    });
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : "Processing failed",
-        status: "REVIEW_REQUIRED",
+        status: updated?.status ?? "REVIEW_REQUIRED",
+        institution: updated?.institution ?? null,
+        documentType: updated?.documentType ?? null,
       },
       { status: 500 }
     );

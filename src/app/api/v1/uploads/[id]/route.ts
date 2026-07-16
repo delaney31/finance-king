@@ -26,6 +26,7 @@ export async function GET(
     fileName: doc.fileName,
     status: doc.status,
     institution: doc.institution,
+    documentType: doc.documentType,
     createdAt: doc.createdAt.toISOString(),
     extractionResult: doc.extractionResult
       ? {

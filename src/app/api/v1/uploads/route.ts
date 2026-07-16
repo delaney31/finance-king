@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getStorage } from "@/lib/storage/provider";
 import { isStorageConfigured } from "@/lib/storage/config";
-import { scheduleDocumentProcessing } from "@/lib/uploads/schedule-processing";
 
 const ALLOWED_TYPES = [
   "image/png",
@@ -91,16 +90,13 @@ export async function POST(req: Request) {
     },
   });
 
-  scheduleDocumentProcessing(doc.id);
-
-  const latest = await prisma.uploadedDocument.findUnique({ where: { id: doc.id } });
-
   return NextResponse.json({
     id: doc.id,
     fileName: doc.fileName,
-    status: latest?.status ?? "PROCESSING",
-    institution: latest?.institution ?? null,
-    documentType: latest?.documentType ?? null,
+    status: "PENDING",
+    institution: null,
+    documentType: null,
     createdAt: doc.createdAt.toISOString(),
+    processUrl: `/api/v1/uploads/${doc.id}/process`,
   });
 }

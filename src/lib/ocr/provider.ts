@@ -1,4 +1,7 @@
 import type { OcrExtractionResult, OcrProvider } from "./types";
+import { withTimeout } from "@/lib/utils/timeout";
+
+const OCR_TIMEOUT_MS = 20_000;
 
 const INSTITUTION_PATTERNS: [RegExp, string][] = [
   [/penfed|pentagon federal/i, "PenFed"],
@@ -50,10 +53,15 @@ export function createTesseractOcrProvider(): OcrProvider {
       } else if (mimeType.startsWith("image/")) {
         try {
           const Tesseract = await import("tesseract.js");
-          const result = await Tesseract.recognize(buffer, "eng");
+          const result = await withTimeout(
+            Tesseract.recognize(buffer, "eng", { logger: () => undefined }),
+            OCR_TIMEOUT_MS,
+            "OCR"
+          );
           rawText = result.data.text;
-        } catch {
-          rawText = "OCR processing unavailable. Please enter data manually.";
+        } catch (error) {
+          console.warn("OCR failed or timed out:", error);
+          rawText = "";
         }
       } else {
         rawText = "PDF OCR requires manual review in MVP. Please verify extracted fields.";
