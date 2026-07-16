@@ -55,7 +55,7 @@ body {
 }
 
 .kpi-card {
-  @apply rounded-xl border border-fk-border bg-fk-card p-4 md:p-6;
+  @apply rounded-xl border border-fk-border bg-fk-card;
 }
 
 .risk-green { @apply text-fk-safe-green; }

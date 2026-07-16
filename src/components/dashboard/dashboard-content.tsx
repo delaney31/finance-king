@@ -103,21 +103,21 @@ export function DashboardContent({
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2 min-[1400px]:grid-cols-4">
         <KpiCard title="Safe to spend today" value={financialState.safeToSpendToday} variant="gold" isProvisional={dashboard.isProvisional} calculationLines={calc} metricKey="safeToSpendToday" />
         <KpiCard title="Safe this week" value={financialState.safeToSpendThisWeek} calculationLines={calc} metricKey="safeToSpendToday" />
         <KpiCard title="Safe this month" value={financialState.safeToSpendThisMonth} calculationLines={calc} metricKey="safeToSpendToday" />
         <KpiCard title="Total liquid cash" value={financialState.totalLiquidCash} calculationLines={calc} metricKey="totalLiquidCash" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2 min-[1400px]:grid-cols-4">
         <KpiCard title="Protected emergency reserve" value={financialState.protectedEmergencyReserve} variant="success" calculationLines={calc} metricKey="totalLiquidCash" />
         <KpiCard title="Tax reserve" value={financialState.taxReserve} />
         <KpiCard title="Personal operating cash" value={financialState.personalOperatingCash} calculationLines={calc} metricKey="personalOperatingCash" />
         <KpiCard title="Business operating cash" value={financialState.businessOperatingCash} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2 min-[1400px]:grid-cols-4">
         <KpiCard title="Total debt" value={financialState.totalDebt} variant="danger" />
         <KpiCard title="Month-end buffer" value={financialState.monthEndProjectedCash} />
         <KpiCard title="Year-end buffer" value={financialState.yearEndProjectedCash} />

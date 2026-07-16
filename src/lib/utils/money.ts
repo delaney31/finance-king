@@ -24,6 +24,17 @@ export function formatMoney(value: MoneyInput, compact = false): string {
   }).format(d.toNumber());
 }
 
+/** Dashboard KPI display — whole dollars for readability in tight cards */
+export function formatMoneyKpi(value: MoneyInput): string {
+  const d = toDecimal(value);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: d.abs().lt(100) ? 2 : 0,
+  }).format(d.toNumber());
+}
+
 export function sumMoney(values: MoneyInput[]): Decimal {
   return values.reduce<Decimal>((acc, v) => acc.plus(toDecimal(v)), new Decimal(0));
 }
