@@ -29,6 +29,8 @@ services:
           property: connectionString
       - key: AUTH_SECRET
         generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: AUTH_URL
