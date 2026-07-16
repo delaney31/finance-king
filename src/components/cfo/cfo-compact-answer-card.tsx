@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -45,7 +45,13 @@ const STATUS_STYLES = {
 
 function formatMoney(n?: number) {
   if (n == null) return "—";
-  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const prefix = n < 0 ? "-$" : "$";
+  return `${prefix}${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatBreakdownAmount(n: number) {
+  if (n < 0) return `-${formatMoney(Math.abs(n))}`;
+  return formatMoney(n);
 }
 
 function CheckIcon({ status }: { status: "PASS" | "WARN" | "FAIL" }) {
@@ -85,6 +91,7 @@ export function CfoCompactAnswerCard({
   response,
   compact: compactProp,
   snapshotStale,
+  recalculated,
   onRecalculate,
   onFollowUp,
 }: {
@@ -92,6 +99,7 @@ export function CfoCompactAnswerCard({
   response: CFOAssistantResponse;
   compact: CFOCompactAnswer;
   snapshotStale?: boolean;
+  recalculated?: boolean;
   onRecalculate?: () => void;
   onFollowUp?: (q: string) => void;
 }) {
@@ -99,6 +107,18 @@ export function CfoCompactAnswerCard({
   const [showDetails, setShowDetails] = useState(false);
   const style = compact ? STATUS_STYLES[compact.status] : STATUS_STYLES.UNKNOWN;
   const StatusIcon = style.icon;
+  const autoRecalcRef = useRef(false);
+
+  const isAffordability =
+    compact?.verdict !== "NEED_MORE_INFORMATION" &&
+    /can i afford|should i buy|afford/i.test(question);
+
+  useEffect(() => {
+    if (snapshotStale && isAffordability && onRecalculate && !autoRecalcRef.current) {
+      autoRecalcRef.current = true;
+      onRecalculate();
+    }
+  }, [snapshotStale, isAffordability, onRecalculate]);
 
   useEffect(() => {
     try {
@@ -123,19 +143,22 @@ export function CfoCompactAnswerCard({
     });
   };
 
+  const negativeVerdict = ["WAIT", "NOT_YET", "REDUCE_BUDGET"].includes(compact.verdict);
+
   return (
     <article
       className="w-full max-w-md"
       aria-label={`CFO answer: ${compact.headline}`}
     >
-      {snapshotStale && (
+      {recalculated && (
+        <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+          Updated using your latest confirmed balances.
+        </div>
+      )}
+
+      {snapshotStale && !recalculated && (
         <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Your numbers changed since this answer.{" "}
-          {onRecalculate && (
-            <button type="button" onClick={onRecalculate} className="underline">
-              Recalculate
-            </button>
-          )}
+          Your numbers changed since this answer. Recalculating…
         </div>
       )}
 
@@ -146,13 +169,11 @@ export function CfoCompactAnswerCard({
           "bg-fk-navy/90 shadow-lg"
         )}
       >
-        {/* Question */}
         <div className="border-b border-fk-border/40 px-4 py-3">
           <p className="text-xs text-fk-muted">Your question</p>
           <p className="mt-0.5 text-sm font-medium leading-snug">{compact.question}</p>
         </div>
 
-        {/* Verdict */}
         <div className={cn("px-4 py-5", style.bg)}>
           <div className="flex items-start gap-3">
             <StatusIcon className={cn("mt-1 h-6 w-6 shrink-0", style.text)} aria-hidden />
@@ -170,7 +191,61 @@ export function CfoCompactAnswerCard({
           </div>
         </div>
 
-        {/* Three metrics */}
+        {compact.reasonDetail.breakdown.length > 0 && (
+          <div className="border-b border-fk-border/40 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-fk-muted">Why</p>
+            <ul className="mt-2 space-y-1.5">
+              {compact.reasonDetail.breakdown.map((row) => (
+                <li key={row.label} className="flex items-baseline justify-between gap-3 text-sm">
+                  <span
+                    className={cn(
+                      "text-fk-muted",
+                      row.status === "SHORTFALL" && "text-red-300",
+                      row.status === "AVAILABLE" && row.amount > 0 && "text-fk-foreground/90"
+                    )}
+                  >
+                    {row.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 font-medium tabular-nums",
+                      row.status === "SHORTFALL" ? "text-red-300" : "text-fk-gold"
+                    )}
+                  >
+                    {formatBreakdownAmount(row.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {(compact.affordableNow || compact.affordableAfter) && (
+              <div className="mt-3 space-y-1 border-t border-fk-border/30 pt-3 text-sm">
+                {compact.affordableNow && (
+                  <p>
+                    <span className="text-fk-muted">Affordable now: </span>
+                    <span className="font-medium text-fk-foreground">{compact.affordableNow}</span>
+                  </p>
+                )}
+                {compact.affordableAfter && (
+                  <p>
+                    <span className="text-fk-muted">This becomes affordable when: </span>
+                    <span className="font-medium text-fk-foreground">{compact.affordableAfter}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {negativeVerdict && compact.reasonDetail.affordabilityTrigger && (
+              <p className="mt-2 text-xs text-fk-muted">
+                {compact.reasonDetail.affordabilityTrigger.description}
+                {compact.reasonDetail.affordabilityTrigger.date
+                  ? ` on ${compact.reasonDetail.affordabilityTrigger.date}`
+                  : ""}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-3 divide-x divide-fk-border/40 border-b border-fk-border/40">
           {compact.primaryMetrics.map((m) => (
             <div key={m.label} className="px-3 py-3 text-center">
@@ -180,7 +255,6 @@ export function CfoCompactAnswerCard({
           ))}
         </div>
 
-        {/* Protection checks */}
         <ul className="space-y-1.5 px-4 py-3" aria-label="Protection checks">
           {compact.protectionChecks.map((c) => (
             <li key={c.label} className="flex items-center gap-2 text-xs">
@@ -193,13 +267,11 @@ export function CfoCompactAnswerCard({
                 )}
               >
                 {c.label}
-                {c.status === "PASS" ? "" : c.status === "WARN" ? " — review" : " — at risk"}
               </span>
             </li>
           ))}
         </ul>
 
-        {/* Show details */}
         <div className="border-t border-fk-border/40 px-4 py-2">
           <button
             type="button"
@@ -288,7 +360,6 @@ export function CfoCompactAnswerCard({
         )}
       </div>
 
-      {/* Follow-up chips */}
       {compact.suggestedQuestions.length > 0 && onFollowUp && (
         <div className="mt-3 flex flex-wrap gap-2">
           {compact.suggestedQuestions.slice(0, 4).map((q) => (

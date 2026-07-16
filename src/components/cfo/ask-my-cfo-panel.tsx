@@ -22,6 +22,7 @@ interface Message {
   content: string;
   response?: CFOAssistantResponse;
   snapshotStale?: boolean;
+  recalculated?: boolean;
 }
 
 const LOADING_STEPS = [
@@ -95,14 +96,16 @@ export function AskMyCfoPanel() {
     return () => clearInterval(interval);
   }, [loading]);
 
-  const sendQuestion = async (q: string) => {
+  const sendQuestion = async (q: string, options?: { replaceMessageId?: string; isRecalculate?: boolean }) => {
     if (!q.trim() || loading) return;
     setError(null);
     setLoading(true);
     setLoadingStep(0);
 
-    const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
-    setMessages((prev) => [...prev, userMsg]);
+    if (!options?.isRecalculate) {
+      const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
+      setMessages((prev) => [...prev, userMsg]);
+    }
     setQuestion("");
 
     try {
@@ -120,16 +123,33 @@ export function AskMyCfoPanel() {
       if (!res.ok) throw new Error(data.error ?? "Request failed");
 
       setConversationId(data.conversationId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: data.messageId,
-          role: "assistant",
-          content: data.response.compact?.advice ?? data.response.answer,
-          response: data.response,
-          snapshotStale: data.snapshotStale,
-        },
-      ]);
+
+      if (options?.replaceMessageId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === options.replaceMessageId
+              ? {
+                  ...m,
+                  content: data.response.compact?.advice ?? data.response.answer,
+                  response: data.response,
+                  snapshotStale: false,
+                  recalculated: true,
+                }
+              : m
+          )
+        );
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: data.messageId,
+            role: "assistant",
+            content: data.response.compact?.advice ?? data.response.answer,
+            response: data.response,
+            snapshotStale: data.snapshotStale,
+          },
+        ]);
+      }
       fetchUsage();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -218,7 +238,8 @@ export function AskMyCfoPanel() {
               response={m.response}
               compact={m.response.compact}
               snapshotStale={m.snapshotStale}
-              onRecalculate={() => sendQuestion(userQuestion)}
+              recalculated={m.recalculated}
+              onRecalculate={() => sendQuestion(userQuestion, { replaceMessageId: m.id, isRecalculate: true })}
               onFollowUp={sendQuestion}
             />
           ) : (

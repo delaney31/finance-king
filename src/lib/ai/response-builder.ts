@@ -42,7 +42,7 @@ export function buildFallbackResponse(
   let answer = "";
   let recommendation: CFORecommendation = "INFORMATION_ONLY";
   let emergencyReserveAffected = false;
-  const taxReserveAffected = false;
+  let taxReserveAffected = false;
   let nextBillsCovered = true;
   let monthEndImpact: number | undefined;
   let yearEndImpact: number | undefined;
@@ -79,7 +79,12 @@ export function buildFallbackResponse(
           protectedReservesIntact: boolean;
           billsRemainFunded: boolean;
           warnings: string[];
-          affectedAccounts: { accountId: string; before: number; after: number }[];
+          affectedAccounts: { accountId: string; nickname?: string; before: number; after: number }[];
+          safeToSpendAfter: number;
+          requiredCushion: number;
+          shortfall: number;
+          emergencyAmountUsed: number;
+          taxAmountUsed: number;
         };
         purchase?: { name: string; amount: number };
         recommendedAccount?: { id: string; nickname: string };
@@ -94,16 +99,27 @@ export function buildFallbackResponse(
             : `I recommend delaying ${purchase.name} ($${purchase.amount.toFixed(2)}). It would strain your safe-to-spend or protected reserves.`;
         monthEndImpact = impact.monthEndBuffer;
         yearEndImpact = impact.yearEndBuffer;
-        emergencyReserveAffected = !impact.protectedReservesIntact;
+        emergencyReserveAffected = !impact.protectedReservesIntact || impact.emergencyAmountUsed > 0;
+        taxReserveAffected = impact.taxAmountUsed > 0;
         nextBillsCovered = impact.billsRemainFunded;
         warnings.push(...impact.warnings);
         recommendedAccountId = data.recommendedAccount?.id;
         recommendedAmount = purchase.amount;
         if (impact.affectedAccounts[0]) {
           supportingCalculations.push({
-            label: "Balance after purchase",
-            amount: impact.affectedAccounts[0].after,
+            label: "Safe to spend after purchase",
+            amount: impact.safeToSpendAfter,
           });
+          supportingCalculations.push({
+            label: "Required cushion",
+            amount: impact.requiredCushion,
+          });
+          if (impact.shortfall > 0) {
+            supportingCalculations.push({
+              label: "Shortfall",
+              amount: impact.shortfall,
+            });
+          }
         }
       } else {
         answer = `Your safe-to-spend today is $${sts.today.toFixed(2)}. Provide an amount to simulate a specific purchase.`;

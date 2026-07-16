@@ -6,13 +6,15 @@ import type {
   FinancialAssistantIntent,
   ToolExecutionRecord,
 } from "./types";
+import type { EngineSnapshot } from "@/lib/engine/types";
+import {
+  buildAffordabilitySummary,
+  buildReasonDetail,
+  extractPurchaseContext,
+} from "./reason-detail";
 
 function formatMoney(n: number): string {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
-
-function formatMoneyPrecise(n: number): string {
-  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 const VERDICT_HEADLINES: Record<CFOCompactVerdict, string> = {
@@ -23,6 +25,8 @@ const VERDICT_HEADLINES: Record<CFOCompactVerdict, string> = {
   NOT_YET: "NOT YET",
   NEED_MORE_INFORMATION: "NEED MORE INFORMATION",
 };
+
+const NEGATIVE_VERDICTS: CFOCompactVerdict[] = ["WAIT", "NOT_YET", "REDUCE_BUDGET"];
 
 export function recommendationToVerdict(rec: CFORecommendation): CFOCompactVerdict {
   switch (rec) {
@@ -61,6 +65,10 @@ export interface VerdictValidationInput {
   canAffordCash?: boolean;
   emergencyReserveAffected: boolean;
   nextBillsCovered: boolean;
+  safeToSpendAfter?: number;
+  requiredCushion?: number;
+  shortfall?: number;
+  emergencyAmountUsed?: number;
 }
 
 /** Ensures verdict cannot contradict deterministic engine results. */
@@ -94,22 +102,37 @@ export function validateVerdict(input: VerdictValidationInput): CFOCompactVerdic
     verdict = input.nextBillsCovered ? "WAIT" : "NOT_YET";
   }
 
+  if (
+    input.safeToSpendAfter != null &&
+    input.requiredCushion != null &&
+    input.safeToSpendAfter >= input.requiredCushion &&
+    input.recommendedAmount != null &&
+    input.recommendedAmount <= input.safeToSpendToday &&
+    NEGATIVE_VERDICTS.includes(verdict)
+  ) {
+    verdict = "GO_AHEAD";
+  }
+
+  if (
+    input.nextBillsCovered &&
+    verdict === "NOT_YET" &&
+    input.shortfall != null &&
+    input.shortfall > 0 &&
+    input.canAffordCash === true
+  ) {
+    verdict = "GO_AHEAD_WITH_LIMIT";
+  }
+
   return verdict;
 }
 
-function riskLabel(
-  verdict: CFOCompactVerdict,
-  warnings: string[]
-): string {
-  if (verdict === "GO_AHEAD" || verdict === "GO_AHEAD_WITH_LIMIT") {
-    return warnings.length > 0 ? "Low–medium" : "Low";
-  }
-  if (verdict === "REDUCE_BUDGET" || verdict === "WAIT") return "Medium";
-  if (verdict === "NOT_YET") return "High";
-  return "Unknown";
-}
+function buildProtectionChecks(
+  response: CFOAssistantResponse,
+  purchaseCtx: ReturnType<typeof extractPurchaseContext>
+): CFOCompactAnswer["protectionChecks"] {
+  const impact = purchaseCtx.impact;
+  const shortfall = impact?.shortfall ?? 0;
 
-function buildProtectionChecks(response: CFOAssistantResponse): CFOCompactAnswer["protectionChecks"] {
   const checks: CFOCompactAnswer["protectionChecks"] = [
     {
       label: "Emergency fund protected",
@@ -120,7 +143,12 @@ function buildProtectionChecks(response: CFOAssistantResponse): CFOCompactAnswer
       status: response.taxReserveAffected ? "WARN" : "PASS",
     },
     {
-      label: "Next major bills covered",
+      label:
+        response.nextBillsCovered
+          ? "Next major bills covered"
+          : shortfall > 0
+            ? `Next major bills — underfunded by ${formatMoney(shortfall)}`
+            : "Next major bills covered",
       status: response.nextBillsCovered ? "PASS" : "FAIL",
     },
   ];
@@ -129,111 +157,74 @@ function buildProtectionChecks(response: CFOAssistantResponse): CFOCompactAnswer
     /overdraft|low balance|below.*floor/i.test(w)
   );
   checks.push({
-    label: "No overdraft risk",
+    label: hasOverdraftWarning ? "Overdraft risk detected" : "No overdraft risk",
     status: hasOverdraftWarning ? "WARN" : "PASS",
   });
+
+  if (impact?.emergencyAmountUsed && impact.emergencyAmountUsed > 0) {
+    checks[0] = {
+      label: `Emergency fund — ${formatMoney(impact.emergencyAmountUsed)} at risk`,
+      status: "FAIL",
+    };
+  }
 
   return checks.slice(0, 4);
 }
 
 function buildAdvice(
   verdict: CFOCompactVerdict,
-  response: CFOAssistantResponse,
-  purchaseName?: string,
-  amount?: number
+  purchaseCtx: ReturnType<typeof extractPurchaseContext>,
+  reasonDetail: CFOCompactAnswer["reasonDetail"]
 ): string {
-  const limit = response.safeToSpendToday ?? 0;
-  const cap = amount ?? response.recommendedAmount;
+  const impact = purchaseCtx.impact;
+  const name = purchaseCtx.name ?? "this purchase";
+  const amount = purchaseCtx.amount;
+  const limit = impact?.maxSafeBudget ?? 0;
 
   switch (verdict) {
     case "GO_AHEAD":
-      if (cap && cap > 0) {
-        return `Yes. I'd keep it under ${formatMoney(Math.min(cap * 1.3, limit))}.`;
+      if (amount && amount > 0) {
+        return `Keep ${name} under ${formatMoney(amount)}.`;
       }
-      if (purchaseName) return `Yes, ${purchaseName} looks fine from cleared funds.`;
       return `You're clear to spend up to ${formatMoney(limit)} today.`;
     case "GO_AHEAD_WITH_LIMIT":
-      return `I'd keep it under ${formatMoney(cap ?? limit * 0.8)}.`;
+      return `Keep ${name} under ${formatMoney(amount ?? limit)}.`;
     case "REDUCE_BUDGET":
-      return `You can do this, but cap the budget at ${formatMoney(cap ?? limit * 0.5)}.`;
+      return `Cap ${name} at ${formatMoney(impact?.maxSafeBudget ?? limit)}.`;
     case "WAIT":
-      return "I'd wait until your next reliable income clears.";
+      if (reasonDetail.affordabilityTrigger?.type === "INCOME_CLEARS") {
+        const trigger = reasonDetail.affordabilityTrigger;
+        const incomeLabel = trigger.description.replace(/^Your next /, "").replace(/ deposit clears$/, "");
+        return `Wait until your next ${trigger.amount ? formatMoney(trigger.amount) + " " : ""}${incomeLabel} clears.`;
+      }
+      return "Wait until your next reliable income clears.";
     case "NOT_YET":
-      return "Not yet — this would strain your cash cushion or upcoming bills.";
+      if (reasonDetail.affordabilityTrigger?.type === "INCOME_CLEARS") {
+        const trigger = reasonDetail.affordabilityTrigger;
+        return `Wait until your next ${trigger.amount ? formatMoney(trigger.amount) + " " : ""}deposit clears.`;
+      }
+      if (reasonDetail.affectedObligation) {
+        return `Wait — this would underfund your ${reasonDetail.affectedObligation}.`;
+      }
+      return reasonDetail.explanation.split(".")[0] + ".";
     case "NEED_MORE_INFORMATION":
       return "I need one detail — what amount are you planning to spend?";
   }
 }
 
-function buildReason(
-  verdict: CFOCompactVerdict,
-  response: CFOAssistantResponse,
-  purchaseName?: string,
-  amount?: number
-): string {
-  const amt = amount ?? response.recommendedAmount;
-  const name = purchaseName ?? "This";
-
-  if (verdict === "NEED_MORE_INFORMATION") {
-    return "Once I know the amount, I can run it against your cleared balances.";
-  }
-
-  if (verdict === "GO_AHEAD" || verdict === "GO_AHEAD_WITH_LIMIT") {
-    if (amt) {
-      return `A ${formatMoneyPrecise(amt)} ${name.toLowerCase().includes(amt.toString()) ? "purchase" : name} keeps your emergency fund and upcoming bills protected.`;
-    }
-    return "Your cleared cash covers this without touching protected reserves.";
-  }
-
-  if (verdict === "WAIT") {
-    return "Waiting keeps your mortgage and major bills fully funded.";
-  }
-
-  if (verdict === "NOT_YET") {
-    return "This would leave next month's major obligations underfunded.";
-  }
-
-  if (response.warnings[0]) return response.warnings[0];
-
-  return response.answer.split(".")[0] + ".";
-}
-
-function extractPurchaseContext(
-  question: string,
-  toolResults: ToolExecutionRecord[]
-): { name?: string; amount?: number; canAffordCash?: boolean; balanceAfter?: number } {
-  const purchaseTool = toolResults.find((t) => t.toolName === "simulatePurchase");
-  const data = purchaseTool?.result.data as {
-    impact?: { canAffordCash: boolean; affectedAccounts?: { after: number }[] };
-    purchase?: { name: string; amount: number };
-  } | undefined;
-
-  if (data?.purchase) {
-    return {
-      name: data.purchase.name,
-      amount: data.purchase.amount,
-      canAffordCash: data.impact?.canAffordCash,
-      balanceAfter: data.impact?.affectedAccounts?.[0]?.after,
-    };
-  }
-
-  const amountMatch = question.match(/\$?\s*([\d,]+(?:\.\d{2})?)/);
-  return { amount: amountMatch ? Number(amountMatch[1].replace(/,/g, "")) : undefined };
-}
-
 function buildMetrics(
   response: CFOAssistantResponse,
   intent: FinancialAssistantIntent,
-  verdict: CFOCompactVerdict,
   purchaseCtx: ReturnType<typeof extractPurchaseContext>
 ): CFOCompactAnswer["primaryMetrics"] {
   const safeToday = response.safeToSpendToday ?? 0;
+  const impact = purchaseCtx.impact;
 
   if (intent === "DEBT_PAYMENT" && response.recommendedAmount) {
     return [
       { label: "Safe today", value: formatMoney(safeToday) },
       { label: "Payment amount", value: formatMoney(response.recommendedAmount) },
-      { label: "Risk", value: riskLabel(verdict, response.warnings) },
+      { label: "Required cushion", value: formatMoney(impact?.requiredCushion ?? safeToday) },
     ];
   }
 
@@ -241,28 +232,29 @@ function buildMetrics(
     return [
       { label: "Safe today", value: formatMoney(safeToday) },
       { label: "This week", value: formatMoney(response.safeToSpendThisWeek ?? 0) },
-      { label: "Risk", value: "Low" },
+      { label: "Required cushion", value: formatMoney(impact?.requiredCushion ?? 0) },
     ];
   }
 
+  const purchaseName = purchaseCtx.name?.toLowerCase() ?? "";
   const afterLabel =
     purchaseCtx.name && purchaseCtx.amount
-      ? `After ${purchaseCtx.name.toLowerCase().includes("dinner") ? "dinner" : "purchase"}`
-      : "After this";
+      ? `After ${purchaseName.includes("dinner") ? "dinner" : purchaseName.includes("disney") ? purchaseCtx.name.split(" ")[0] : "purchase"}`
+      : "After purchase";
 
-  let afterValue = "—";
-  if (purchaseCtx.balanceAfter != null) {
-    afterValue = formatMoney(purchaseCtx.balanceAfter);
+  let afterValue = safeToday;
+  if (impact && purchaseCtx.amount != null) {
+    afterValue = impact.safeToSpendAfter;
   } else if (purchaseCtx.amount != null) {
-    afterValue = formatMoney(Math.max(0, safeToday - purchaseCtx.amount));
-  } else if (response.monthEndImpact != null) {
-    afterValue = formatMoney(response.monthEndImpact);
+    afterValue = Math.max(0, safeToday - purchaseCtx.amount);
   }
+
+  const requiredCushion = impact?.requiredCushion ?? 0;
 
   return [
     { label: "Safe today", value: formatMoney(safeToday) },
-    { label: afterLabel, value: afterValue },
-    { label: "Risk", value: riskLabel(verdict, response.warnings) },
+    { label: afterLabel, value: formatMoney(afterValue) },
+    { label: "Required cushion", value: formatMoney(requiredCushion) },
   ];
 }
 
@@ -306,10 +298,12 @@ export function buildCompactAnswer(
   response: CFOAssistantResponse,
   intent: FinancialAssistantIntent,
   toolResults: ToolExecutionRecord[],
-  snapshotDate?: string
+  snapshotDate?: string,
+  snapshot?: EngineSnapshot
 ): CFOCompactAnswer {
   const purchaseCtx = extractPurchaseContext(question, toolResults);
   const safeToday = response.safeToSpendToday ?? 0;
+  const impact = purchaseCtx.impact;
 
   let verdict = recommendationToVerdict(response.recommendation);
 
@@ -333,6 +327,10 @@ export function buildCompactAnswer(
     canAffordCash: purchaseCtx.canAffordCash,
     emergencyReserveAffected: response.emergencyReserveAffected,
     nextBillsCovered: response.nextBillsCovered,
+    safeToSpendAfter: impact?.safeToSpendAfter,
+    requiredCushion: impact?.requiredCushion,
+    shortfall: impact?.shortfall,
+    emergencyAmountUsed: impact?.emergencyAmountUsed,
   });
 
   const purchaseName = purchaseCtx.name ?? question.replace(/can i afford\s*/i, "").replace(/\?.*$/, "").trim();
@@ -346,6 +344,9 @@ export function buildCompactAnswer(
     headline = `${VERDICT_HEADLINES[verdict]} ${formatMoney(amount)}`;
   }
 
+  const reasonDetail = buildReasonDetail(verdict, { ...purchaseCtx, name: purchaseName, amount }, snapshot);
+  const affordability = buildAffordabilitySummary({ ...purchaseCtx, name: purchaseName, amount }, verdict);
+
   const routingTool = toolResults.find((t) => t.toolName === "getRecommendedAccountForExpense");
   const routingData = routingTool?.result.data as { recommended?: { nickname: string } } | undefined;
 
@@ -355,13 +356,16 @@ export function buildCompactAnswer(
     question,
     verdict,
     headline,
-    advice: buildAdvice(verdict, response, purchaseName, amount),
-    reason: buildReason(verdict, response, purchaseName, amount),
+    advice: buildAdvice(verdict, { ...purchaseCtx, name: purchaseName, amount }, reasonDetail),
+    reason: reasonDetail.explanation,
+    reasonDetail,
+    affordableNow: affordability.affordableNow,
+    affordableAfter: affordability.affordableAfter,
     status: verdictToStatus(verdict),
-    primaryMetrics: buildMetrics(response, intent, verdict, purchaseCtx),
-    protectionChecks: buildProtectionChecks(response),
+    primaryMetrics: buildMetrics(response, intent, purchaseCtx),
+    protectionChecks: buildProtectionChecks(response, purchaseCtx),
     details: {
-      recommendedAccount: routingData?.recommended?.nickname,
+      recommendedAccount: routingData?.recommended?.nickname ?? purchaseCtx.accountNickname,
       cost: amount,
       monthEndImpact: response.monthEndImpact,
       yearEndImpact: isLargePurchase ? response.yearEndImpact : undefined,

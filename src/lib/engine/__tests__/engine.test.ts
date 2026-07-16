@@ -106,6 +106,10 @@ describe("Financial Engine", () => {
     });
     expect(impact.recommendation).toBeDefined();
     expect(["proceed", "reduce", "delay", "decline"]).toContain(impact.recommendation);
+    expect(impact.safeToSpendBefore).toBeGreaterThan(0);
+    expect(impact.safeToSpendAfter).toBe(impact.safeToSpendBefore - 350);
+    expect(impact.requiredCushion).toBeGreaterThan(0);
+    expect(impact.primaryReason).toBeDefined();
   });
 
   it("blocks spending from emergency reserve", () => {

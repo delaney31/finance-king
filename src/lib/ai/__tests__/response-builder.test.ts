@@ -54,7 +54,7 @@ describe("Response builder", () => {
     ];
     const response = buildFallbackResponse("CAN_I_AFFORD", seedSnapshot, toolCalls);
     expect(response.recommendation).toBeDefined();
-    expect(response.supportingCalculations.some((c) => c.label.includes("Balance"))).toBe(true);
+    expect(response.supportingCalculations.some((c) => c.label.includes("Safe to spend after purchase"))).toBe(true);
   });
 
   it("AI cannot override deterministic safe-to-spend", () => {

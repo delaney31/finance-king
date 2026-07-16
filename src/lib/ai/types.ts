@@ -27,12 +27,62 @@ export type CFOCompactVerdict =
   | "NOT_YET"
   | "NEED_MORE_INFORMATION";
 
+export type CFOReasonPrimary =
+  | "UPCOMING_BILLS_UNDERFUNDED"
+  | "ACCOUNT_FLOOR_BREACHED"
+  | "EMERGENCY_RESERVE_TOUCHED"
+  | "TAX_RESERVE_TOUCHED"
+  | "INSUFFICIENT_CLEARED_CASH"
+  | "PENDING_INCOME_REQUIRED"
+  | "BUSINESS_FUNDS_NOT_AVAILABLE_PERSONALLY"
+  | "OVERDRAFT_RISK"
+  | "BUDGET_EXCEEDED"
+  | "OTHER";
+
+export type CFOAffordabilityTriggerType =
+  | "INCOME_CLEARS"
+  | "BILL_IS_PAID"
+  | "DATE_REACHED"
+  | "BUDGET_REDUCED"
+  | "ACCOUNT_TRANSFER"
+  | "DATA_CONFIRMED";
+
+export type CFOReasonBreakdownStatus =
+  | "AVAILABLE"
+  | "RESERVED"
+  | "SHORTFALL"
+  | "PROTECTED";
+
+export interface CFOReasonDetail {
+  primaryReason: CFOReasonPrimary;
+  explanation: string;
+  affectedAccount?: string;
+  affectedObligation?: string;
+  affectedDate?: string;
+  shortfallAmount?: number;
+  maximumSafeAmount?: number;
+  affordabilityTrigger?: {
+    type: CFOAffordabilityTriggerType;
+    description: string;
+    amount?: number;
+    date?: string;
+  };
+  breakdown: Array<{
+    label: string;
+    amount: number;
+    status?: CFOReasonBreakdownStatus;
+  }>;
+}
+
 export interface CFOCompactAnswer {
   question: string;
   verdict: CFOCompactVerdict;
   headline: string;
   advice: string;
   reason: string;
+  reasonDetail: CFOReasonDetail;
+  affordableNow?: string;
+  affordableAfter?: string;
   status: "SAFE" | "CAUTION" | "RISK" | "UNKNOWN";
   primaryMetrics: Array<{
     label: string;

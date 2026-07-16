@@ -130,15 +130,47 @@ export interface ScenarioResult {
   yearEndBufferWithEsop?: number;
 }
 
+export type PurchasePrimaryReason =
+  | "UPCOMING_BILLS_UNDERFUNDED"
+  | "ACCOUNT_FLOOR_BREACHED"
+  | "EMERGENCY_RESERVE_TOUCHED"
+  | "TAX_RESERVE_TOUCHED"
+  | "INSUFFICIENT_CLEARED_CASH"
+  | "PENDING_INCOME_REQUIRED"
+  | "BUSINESS_FUNDS_NOT_AVAILABLE_PERSONALLY"
+  | "OVERDRAFT_RISK"
+  | "BUDGET_EXCEEDED"
+  | "OTHER";
+
 export interface PurchaseImpact {
   canAffordCash: boolean;
   recommendation: "proceed" | "reduce" | "delay" | "decline";
-  affectedAccounts: { accountId: string; before: number; after: number }[];
+  affectedAccounts: { accountId: string; nickname?: string; before: number; after: number }[];
   monthEndBuffer: number;
   yearEndBuffer: number;
   protectedReservesIntact: boolean;
   billsRemainFunded: boolean;
   maxSafeBudget: number;
+  safeToSpendBefore: number;
+  safeToSpendAfter: number;
+  requiredCushion: number;
+  shortfall: number;
+  emergencyAmountUsed: number;
+  taxAmountUsed: number;
+  primaryReason: PurchasePrimaryReason;
+  underfundedObligation?: {
+    name: string;
+    amount: number;
+    date?: string;
+    shortfall: number;
+  };
+  affordabilityAfterIncome?: {
+    incomeName: string;
+    amount: number;
+    date?: string;
+    safeToSpendAfter: number;
+    maxAffordablePurchase: number;
+  };
   warnings: string[];
 }
 

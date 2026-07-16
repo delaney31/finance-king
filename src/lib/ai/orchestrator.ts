@@ -88,16 +88,21 @@ async function executeToolsForIntent(
     }
     case "CAN_I_AFFORD": {
       const parsed = canAffordParamsSchema.safeParse(params);
-      const amount = parsed.success && parsed.data.amount ? parsed.data.amount : 75;
+      const amount = parsed.success ? parsed.data.amount : undefined;
       const name = parsed.success && parsed.data.purchaseName ? parsed.data.purchaseName : "Purchase";
-      await run("simulatePurchase", { name, amount }, () =>
-        simulatePurchase(userId, snapshot, snapshotId, {
-          name,
-          amount,
-          date: parsed.data?.purchaseDate ?? snapshot.asOfDate,
-          accountId: parsed.data?.preferredAccountId,
-          isBusiness: parsed.data?.isBusiness,
-        })
+      if (amount && amount > 0) {
+        await run("simulatePurchase", { name, amount }, () =>
+          simulatePurchase(userId, snapshot, snapshotId, {
+            name,
+            amount,
+            date: parsed.data?.purchaseDate ?? snapshot.asOfDate,
+            accountId: parsed.data?.preferredAccountId,
+            isBusiness: parsed.data?.isBusiness,
+          })
+        );
+      }
+      await run("calculateSafeToSpend", { horizon: "today" }, () =>
+        calculateSafeToSpend(userId, snapshot, snapshotId, "today")
       );
       break;
     }
@@ -290,7 +295,8 @@ export async function processCFOQuestion(params: {
     response,
     intentResult.intent,
     toolCalls,
-    snapshot.asOfDate
+    snapshot.asOfDate,
+    snapshot
   );
 
   const assistantMessage = await prisma.aIMessage.create({
