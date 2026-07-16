@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  CircleAlert,
   Crown,
   HelpCircle,
   XCircle,

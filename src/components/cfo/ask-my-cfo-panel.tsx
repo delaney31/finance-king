@@ -370,7 +370,12 @@ export function AskMyCfoPanel() {
               {composerMode === "ask" ? "Ask anything, or try:" : "Update your records, or try:"}
             </p>
             <div className="flex flex-wrap gap-2">
-              {(composerMode === "ask" ? ASK_EXAMPLES : UPDATE_EXAMPLES).map((q) => (
+              {(composerMode === "ask"
+                ? suggested.length > 0
+                  ? suggested.slice(0, 6)
+                  : ASK_EXAMPLES
+                : UPDATE_EXAMPLES
+              ).map((q) => (
                 <button
                   key={q}
                   type="button"

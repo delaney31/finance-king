@@ -13,7 +13,6 @@ interface PreviewData {
 }
 
 export function CfoUpdateConfirmationCard({
-  command,
   preview,
   loading,
   onConfirm,

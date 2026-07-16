@@ -27,7 +27,7 @@ export function matchAccount(
   const name = query.accountName ? normalize(query.accountName) : "";
   const inst = query.institution ? normalize(query.institution) : "";
 
-  let candidates = accounts.filter((a) => {
+  const candidates = accounts.filter((a) => {
     const nick = normalize(a.nickname);
     const institution = normalize(a.institution);
     if (name && (nick.includes(name) || name.includes(nick))) return true;

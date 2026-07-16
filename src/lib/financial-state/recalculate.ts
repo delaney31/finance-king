@@ -60,16 +60,12 @@ export async function getLatestFinancialState(userId: string): Promise<Financial
   if (!latest) return null;
 
   const engineSnapshot = await getEngineSnapshot(userId);
-  const payload = latest.payload as Record<string, unknown>;
-  const state = buildFinancialStateFromEngine(
+  return buildFinancialStateFromEngine(
     userId,
     engineSnapshot,
     latest.id,
     latest.createdAt.toISOString()
   );
-
-  // Use persisted dashboard if engine hasn't changed materially — for speed use fresh compute
-  return state;
 }
 
 export async function getOrRecalculateFinancialState(
