@@ -19,6 +19,52 @@ export type CFORecommendation =
   | "DECLINE"
   | "INFORMATION_ONLY";
 
+export type CFOCompactVerdict =
+  | "GO_AHEAD"
+  | "GO_AHEAD_WITH_LIMIT"
+  | "REDUCE_BUDGET"
+  | "WAIT"
+  | "NOT_YET"
+  | "NEED_MORE_INFORMATION";
+
+export interface CFOCompactAnswer {
+  question: string;
+  verdict: CFOCompactVerdict;
+  headline: string;
+  advice: string;
+  reason: string;
+  status: "SAFE" | "CAUTION" | "RISK" | "UNKNOWN";
+  primaryMetrics: Array<{
+    label: string;
+    value: string;
+    change?: string;
+  }>;
+  protectionChecks: Array<{
+    label: string;
+    status: "PASS" | "WARN" | "FAIL";
+  }>;
+  details: {
+    recommendedAccount?: string;
+    cost?: number;
+    monthEndImpact?: number;
+    yearEndImpact?: number;
+    upcomingBills?: Array<{
+      label: string;
+      amount: number;
+      dueDate?: string;
+    }>;
+    assumptions?: string[];
+    supportingCalculations?: Array<{
+      label: string;
+      amount?: number;
+      description?: string;
+    }>;
+    snapshotDate?: string;
+    warnings?: string[];
+  };
+  suggestedQuestions: string[];
+}
+
 export interface FinancialToolResult<T> {
   data: T;
   warnings: string[];
@@ -48,6 +94,7 @@ export interface CFOAssistantResponse {
     description?: string;
   }>;
   suggestedFollowUpQuestions: string[];
+  compact?: CFOCompactAnswer;
 }
 
 export interface IntentRequest {

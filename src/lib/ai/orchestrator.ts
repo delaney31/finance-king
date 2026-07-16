@@ -6,6 +6,7 @@ import { getAIConfig } from "./config";
 import { cfoAssistantResponseSchema, canAffordParamsSchema, explainMetricParamsSchema, safeToSpendParamsSchema } from "./schemas";
 import { buildSafeContext } from "./context-builder";
 import { buildFallbackResponse, enhanceWithLLM } from "./response-builder";
+import { buildCompactAnswer } from "./compact-presenter";
 import { checkDailyLimit, logUsage } from "./usage";
 import type {
   CFOAssistantResponse,
@@ -283,6 +284,14 @@ export async function processCFOQuestion(params: {
   if (!parsed.success) {
     response = validateResponse(buildFallbackResponse(intentResult.intent, snapshot, toolCalls));
   }
+
+  response.compact = buildCompactAnswer(
+    params.question,
+    response,
+    intentResult.intent,
+    toolCalls,
+    snapshot.asOfDate
+  );
 
   const assistantMessage = await prisma.aIMessage.create({
     data: {
