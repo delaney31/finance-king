@@ -23,6 +23,24 @@ function emptyClassification(): DocumentClassification {
   };
 }
 
+function normalizeClassification(value: unknown): DocumentClassification {
+  if (!value || typeof value !== "object") return emptyClassification();
+  const record = value as Partial<DocumentClassification>;
+  const type = record.type ?? "UNKNOWN";
+  return {
+    type,
+    confidence: typeof record.confidence === "number" ? record.confidence : 0,
+    reasons: Array.isArray(record.reasons) ? record.reasons : ["manual review required"],
+    scores: record.scores ?? {
+      DEPOSIT_ACCOUNT: 0,
+      CREDIT_CARD: 0,
+      LOAN: 0,
+      TRANSACTION_STATEMENT: 0,
+      UNKNOWN: 0,
+    },
+  };
+}
+
 export function createEmptyExtracted(rawText?: string | null): ExtractedFinancialData {
   const classification = rawText ? classifyFinancialDocument(rawText) : emptyClassification();
   return {
@@ -48,10 +66,7 @@ export function normalizeExtractedData(
     ? (record.transactions as ExtractedTransaction[])
     : [];
 
-  const classification =
-    record.classification && typeof record.classification === "object"
-      ? (record.classification as DocumentClassification)
-      : emptyClassification();
+  const classification = normalizeClassification(record.classification);
 
   const documentType =
     typeof record.documentType === "string"
@@ -71,7 +86,7 @@ export function normalizeExtractedData(
     accountLastFour:
       typeof record.accountLastFour === "string" ? record.accountLastFour : undefined,
     documentType,
-    classification,
+    classification: normalizeClassification(classification),
     currentBalance: Number.isFinite(currentBalance) ? currentBalance : undefined,
     availableBalance:
       typeof record.availableBalance === "number" ? record.availableBalance : undefined,

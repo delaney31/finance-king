@@ -12,10 +12,17 @@ export async function GET(
   }
 
   const { id } = await params;
-  const review = await buildImportReview(id, session.user.id);
-  if (!review) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    const review = await buildImportReview(id, session.user.id);
+    if (!review) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json(review);
+  } catch (error) {
+    console.error("buildImportReview failed:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Review failed" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json(review);
 }

@@ -178,6 +178,8 @@ export function UploadsContent({
       {reviewId && reviewItem && (
         <UploadReviewPanel
           documentId={reviewId}
+          fileName={reviewItem.fileName}
+          uploadStatus={reviewItem.status}
           accounts={accounts}
           onClose={() => setReviewId(null)}
           onConfirmed={(summary) => handleImportConfirmed(reviewId, summary)}

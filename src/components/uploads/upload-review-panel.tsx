@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ interface AccountOption {
 
 interface UploadReviewPanelProps {
   documentId: string;
+  fileName: string;
+  uploadStatus: string;
   accounts: AccountOption[];
   onClose: () => void;
   onConfirmed: (summary: ImportSummary) => void;
@@ -27,78 +29,153 @@ interface UploadReviewPanelProps {
 
 type Step = "analyzing" | "review" | "recalculating" | "summary";
 
-export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }: UploadReviewPanelProps) {
-  const [step, setStep] = useState<Step>("analyzing");
-  const [review, setReview] = useState<ImportReviewPayload | null>(null);
+async function apiFetch(url: string, init?: RequestInit) {
+  const res = await fetch(url, {
+    credentials: "include",
+    redirect: "manual",
+    ...init,
+  });
+  if (res.type === "opaqueredirect" || res.status === 307 || res.status === 302) {
+    throw new Error("Session expired — refresh the page and sign in again.");
+  }
+  return res;
+}
+
+function emptyReview(documentId: string, fileName: string): ImportReviewPayload {
+  return {
+    documentId,
+    fileName,
+    extracted: {
+      documentType: "UNKNOWN",
+      classification: {
+        type: "UNKNOWN",
+        confidence: 0,
+        reasons: ["Enter account details manually"],
+        scores: {
+          DEPOSIT_ACCOUNT: 0,
+          CREDIT_CARD: 0,
+          LOAN: 0,
+          TRANSACTION_STATEMENT: 0,
+          UNKNOWN: 0,
+        },
+      },
+      transactions: [],
+      fieldConfidence: {},
+    },
+    match: {
+      accountId: null,
+      score: 0,
+      reasons: ["no automatic match"],
+      requiresUserConfirmation: true,
+      candidates: [],
+    },
+    duplicateTransactions: [],
+    suggestedAction: "CREATE_NEW",
+  };
+}
+
+export function UploadReviewPanel({
+  documentId,
+  fileName,
+  uploadStatus,
+  accounts,
+  onClose,
+  onConfirmed,
+}: UploadReviewPanelProps) {
+  const readyForReview = uploadStatus === "REVIEW_REQUIRED" || uploadStatus === "CONFIRMED";
+  const [step, setStep] = useState<Step>(readyForReview ? "review" : "analyzing");
+  const [review, setReview] = useState<ImportReviewPayload | null>(
+    readyForReview ? emptyReview(documentId, fileName) : null
+  );
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [error, setError] = useState("");
-  const [action, setAction] = useState<"UPDATE_EXISTING" | "CREATE_NEW" | "UNSUPPORTED">("UPDATE_EXISTING");
+  const [action, setAction] = useState<"UPDATE_EXISTING" | "CREATE_NEW" | "UNSUPPORTED">("CREATE_NEW");
   const [accountId, setAccountId] = useState("");
-  const [nickname, setNickname] = useState("");
+  const [nickname, setNickname] = useState("New Account");
   const [institution, setInstitution] = useState("");
   const [currentBalance, setCurrentBalance] = useState("");
   const [availableBalance, setAvailableBalance] = useState("");
   const [creditLimit, setCreditLimit] = useState("");
   const [minimumPayment, setMinimumPayment] = useState("");
-  const [statusMessage, setStatusMessage] = useState("Loading review data…");
+  const [statusMessage, setStatusMessage] = useState(
+    readyForReview ? "Loading extracted data…" : "Waiting for analysis to finish…"
+  );
   const [extractionFailed, setExtractionFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [pollKey, setPollKey] = useState(0);
+  const stallCount = useRef(0);
+
+  function applyReview(data: ImportReviewPayload) {
+    setReview(data);
+    setAction(data.suggestedAction);
+    setAccountId(data.match.accountId ?? data.match.candidates[0]?.accountId ?? "");
+    setNickname(data.extracted.institution ? `${data.extracted.institution} Account` : "New Account");
+    setInstitution(data.extracted.institution ?? "");
+    setCurrentBalance(data.extracted.currentBalance?.toString() ?? "");
+    setAvailableBalance(data.extracted.availableBalance?.toString() ?? "");
+    setCreditLimit(data.extracted.creditLimit?.toString() ?? "");
+    setMinimumPayment(data.extracted.minimumPayment?.toString() ?? "");
+    setExtractionFailed(
+      data.extracted.documentType === "UNKNOWN" &&
+        data.extracted.currentBalance == null &&
+        (data.extracted.classification?.confidence ?? 0) < 0.5
+    );
+    setError("");
+    setStep("review");
+  }
 
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
+    stallCount.current = 0;
 
     async function loadReview() {
       try {
-        const statusRes = await fetch(`/api/v1/uploads/${documentId}`);
+        let status = uploadStatus;
+        const statusRes = await apiFetch(`/api/v1/uploads/${documentId}`);
         if (cancelled) return;
 
         if (statusRes.ok) {
           const statusData = (await statusRes.json()) as { status: string };
-          if (statusData.status === "PENDING" || statusData.status === "PROCESSING") {
-            setStatusMessage("Still analyzing your upload…");
-            return;
-          }
+          status = statusData.status;
         }
 
-        const res = await fetch(`/api/v1/uploads/${documentId}/review`);
+        const stillProcessing = status === "PENDING" || status === "PROCESSING";
+        if (stillProcessing && !readyForReview) {
+          stallCount.current += 1;
+          setStatusMessage("Still analyzing your upload…");
+          if (stallCount.current >= 4) {
+            setStatusMessage("Analysis is taking longer than expected — retrying on the server…");
+            await apiFetch(`/api/v1/uploads/${documentId}/process`, { method: "POST" });
+            stallCount.current = 0;
+          }
+          return;
+        }
+
+        const res = await apiFetch(`/api/v1/uploads/${documentId}/review`);
         if (cancelled) return;
 
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          setError(
+          const message =
             (body as { error?: string }).error ??
-              `Could not load review data (${res.status}). Try retrying analysis.`
-          );
+            `Could not load review data (${res.status}). Enter details manually below.`;
+          setError(message);
           setExtractionFailed(true);
+          setReview((prev) => prev ?? emptyReview(documentId, fileName));
           setStep("review");
           if (interval) clearInterval(interval);
           return;
         }
 
         const data = (await res.json()) as ImportReviewPayload;
-        setReview(data);
-        setAction(data.suggestedAction);
-        setAccountId(data.match.accountId ?? data.match.candidates[0]?.accountId ?? "");
-        setNickname(data.extracted.institution ? `${data.extracted.institution} Account` : "New Account");
-        setInstitution(data.extracted.institution ?? "");
-        setCurrentBalance(data.extracted.currentBalance?.toString() ?? "");
-        setAvailableBalance(data.extracted.availableBalance?.toString() ?? "");
-        setCreditLimit(data.extracted.creditLimit?.toString() ?? "");
-        setMinimumPayment(data.extracted.minimumPayment?.toString() ?? "");
-        setExtractionFailed(
-          data.extracted.documentType === "UNKNOWN" &&
-            !data.extracted.currentBalance &&
-            data.extracted.classification.confidence === 0
-        );
-        setError("");
-        setStep("review");
+        applyReview(data);
         if (interval) clearInterval(interval);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load review");
           setExtractionFailed(true);
+          setReview((prev) => prev ?? emptyReview(documentId, fileName));
           setStep("review");
           if (interval) clearInterval(interval);
         }
@@ -112,21 +189,28 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [documentId, pollKey]);
+  }, [documentId, fileName, pollKey, readyForReview, uploadStatus]);
 
   async function retryAnalysis() {
     setRetrying(true);
     setError("");
-    setReview(null);
     setStep("analyzing");
     setStatusMessage("Re-running OCR and account matching…");
+    stallCount.current = 0;
     try {
-      const res = await fetch(`/api/v1/uploads/${documentId}/process`, { method: "POST" });
+      const res = await apiFetch(`/api/v1/uploads/${documentId}/process`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError((body as { error?: string }).error ?? "Retry failed");
+        setReview(emptyReview(documentId, fileName));
+        setStep("review");
+      } else {
+        setPollKey((k) => k + 1);
       }
-      setPollKey((k) => k + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+      setReview(emptyReview(documentId, fileName));
+      setStep("review");
     } finally {
       setRetrying(false);
     }
@@ -154,49 +238,54 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
     const confirmedTransactionIndexes = review.extracted.transactions.map((_, index) => index);
     const skipDuplicateIndexes = [...duplicateIndexes];
 
-    const res = await fetch(`/api/v1/uploads/${documentId}/confirm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        accountId: action === "UPDATE_EXISTING" ? accountId : undefined,
-        createAccount:
-          action === "CREATE_NEW"
-            ? {
-                nickname,
-                institution,
-                accountType:
-                  review.extracted.documentType === "CREDIT_CARD"
-                    ? "CREDIT_CARD"
-                    : review.extracted.documentType === "LOAN"
-                      ? "PERSONAL_LOAN"
-                      : review.extracted.rawText
-                        ? inferDepositAccountType(review.extracted.rawText)
-                        : "CHECKING",
-              }
-            : undefined,
-        confirmedFields: {
-          institution,
-          currentBalance: currentBalance ? Number(currentBalance) : undefined,
-          availableBalance: availableBalance ? Number(availableBalance) : undefined,
-          creditLimit: creditLimit ? Number(creditLimit) : undefined,
-          minimumPayment: minimumPayment ? Number(minimumPayment) : undefined,
-        },
-        confirmedTransactionIndexes,
-        skipDuplicateIndexes,
-      }),
-    });
+    try {
+      const res = await apiFetch(`/api/v1/uploads/${documentId}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          accountId: action === "UPDATE_EXISTING" ? accountId : undefined,
+          createAccount:
+            action === "CREATE_NEW"
+              ? {
+                  nickname,
+                  institution,
+                  accountType:
+                    review.extracted.documentType === "CREDIT_CARD"
+                      ? "CREDIT_CARD"
+                      : review.extracted.documentType === "LOAN"
+                        ? "PERSONAL_LOAN"
+                        : review.extracted.rawText
+                          ? inferDepositAccountType(review.extracted.rawText)
+                          : "CHECKING",
+                }
+              : undefined,
+          confirmedFields: {
+            institution,
+            currentBalance: currentBalance ? Number(currentBalance) : undefined,
+            availableBalance: availableBalance ? Number(availableBalance) : undefined,
+            creditLimit: creditLimit ? Number(creditLimit) : undefined,
+            minimumPayment: minimumPayment ? Number(minimumPayment) : undefined,
+          },
+          confirmedTransactionIndexes,
+          skipDuplicateIndexes,
+        }),
+      });
 
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Import failed");
+      const data = await res.json();
+      if (!res.ok) {
+        setError((data as { error?: string }).error ?? "Import failed");
+        setStep("review");
+        return;
+      }
+
+      setSummary(data as ImportSummary);
+      setStep("summary");
+      onConfirmed(data as ImportSummary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import failed");
       setStep("review");
-      return;
     }
-
-    setSummary(data as ImportSummary);
-    setStep("summary");
-    onConfirmed(data as ImportSummary);
   }
 
   if (step === "analyzing") {
@@ -207,9 +296,22 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
           <p>{statusMessage}</p>
           <p>Detecting document type, matching accounts, and extracting balances.</p>
           {error && <p className="text-fk-risk-red">{error}</p>}
-          <Button variant="outline" size="sm" onClick={retryAnalysis} disabled={retrying}>
-            {retrying ? "Retrying…" : "Retry analysis"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={retryAnalysis} disabled={retrying}>
+              {retrying ? "Retrying…" : "Retry analysis"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setReview(emptyReview(documentId, fileName));
+                setExtractionFailed(true);
+                setStep("review");
+              }}
+            >
+              Enter details manually
+            </Button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -241,7 +343,7 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
             <Button
               variant="outline"
               onClick={async () => {
-                await fetch(`/api/v1/uploads/${documentId}/undo`, { method: "POST" });
+                await apiFetch(`/api/v1/uploads/${documentId}/undo`, { method: "POST" });
                 onClose();
               }}
             >
@@ -258,20 +360,14 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
       <Card className="border-fk-gold/40">
         <CardHeader><CardTitle>Review extraction</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <p className="text-fk-muted">
-            Automatic extraction could not load. You can retry analysis or enter details manually after retry.
-          </p>
+          <p className="text-fk-muted">Loading review data…</p>
           {error && <p className="text-fk-risk-red">{error}</p>}
-          <div className="flex gap-2">
-            <Button onClick={retryAnalysis} disabled={retrying}>
-              {retrying ? "Retrying…" : "Retry analysis"}
-            </Button>
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-          </div>
         </CardContent>
       </Card>
     );
   }
+
+  const reasons = review.extracted.classification?.reasons ?? [];
 
   return (
     <Card className="border-fk-gold/40">
@@ -289,11 +385,15 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
         )}
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">{review.extracted.documentType}</Badge>
-          <Badge variant="warning">{Math.round(review.extracted.classification.confidence * 100)}% type confidence</Badge>
+          <Badge variant="warning">
+            {Math.round((review.extracted.classification?.confidence ?? 0) * 100)}% type confidence
+          </Badge>
           {review.match.accountId && <Badge variant="success">Matched existing account</Badge>}
         </div>
 
-        <p className="text-sm text-fk-muted">{review.extracted.classification.reasons.join(" · ")}</p>
+        {reasons.length > 0 && (
+          <p className="text-sm text-fk-muted">{reasons.join(" · ")}</p>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
@@ -336,7 +436,7 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
 
         {action === "UPDATE_EXISTING" && (
           <div className="space-y-2">
-            <Label>Choose account</Label>
+            <Label>Choose a different account</Label>
             <select
               className="w-full rounded-md border border-fk-border bg-fk-charcoal px-3 py-2 text-sm"
               value={accountId}
@@ -366,9 +466,9 @@ export function UploadReviewPanel({ documentId, accounts, onClose, onConfirmed }
           </div>
         )}
 
-        {review.extracted.transactions.length > 0 && (
+        {(review.extracted.transactions?.length ?? 0) > 0 && (
           <Alert>
-            <AlertTitle>Transactions extracted ({review.extracted.transactions.length})</AlertTitle>
+            <AlertTitle>Review transactions ({review.extracted.transactions.length})</AlertTitle>
             <AlertDescription>
               {review.duplicateTransactions.length} suspected duplicate
               {review.duplicateTransactions.length === 1 ? "" : "s"} will be skipped unless you override.

@@ -40,7 +40,6 @@ function suggestedActionFromMatch(
   match: ImportReviewPayload["match"],
   documentType: ExtractedFinancialData["documentType"]
 ): ImportReviewPayload["suggestedAction"] {
-  if (documentType === "UNKNOWN") return "UNSUPPORTED";
   if (match.accountId && !match.requiresUserConfirmation) return "UPDATE_EXISTING";
   if (match.candidates.length > 0) return "UPDATE_EXISTING";
   return "CREATE_NEW";
