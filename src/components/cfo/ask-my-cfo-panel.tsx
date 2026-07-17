@@ -19,6 +19,8 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CfoCompactAnswerCard } from "./cfo-compact-answer-card";
 import { CfoUpdateConfirmationCard, CfoUpdateResultCard } from "./cfo-update-confirmation-card";
 import { useAskMyCfo } from "./ask-my-cfo-provider";
+import { useCfoRequest } from "./use-cfo-request";
+import { CfoRequestDebugPanel } from "./cfo-request-debug-panel";
 
 type ComposerMode = "ask" | "update";
 
@@ -50,25 +52,30 @@ const UPDATE_EXAMPLES = [
   "Transfer $2,900 to Wells Fargo",
 ];
 
-const LOADING_STEPS = [
-  "Understanding your question…",
-  "Checking your balances…",
-  "Reviewing upcoming bills…",
-  "Preparing your answer…",
-];
-
 export function AskMyCfoPanel() {
   const { open, setOpen } = useAskMyCfo();
+  const {
+    state: requestState,
+    stateLabel,
+    error: requestError,
+    slowWarning,
+    isActive: requestActive,
+    lastRequestId,
+    sendQuestion: sendCfoQuestion,
+    cancelRequest,
+    setError: setRequestError,
+    resetState,
+  } = useCfoRequest();
   const [composerMode, setComposerMode] = useState<ComposerMode>("ask");
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
-  const [loading, setLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [updateLoading, setUpdateLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggested, setSuggested] = useState<string[]>([]);
   const [usage, setUsage] = useState<{ remainingToday: number; dailyLimit: number } | null>(null);
   const [showUsageInfo, setShowUsageInfo] = useState(false);
+  const [slowWarningDismissed, setSlowWarningDismissed] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<{
     command: CFODataCommand;
     preview: Record<string, unknown>;
@@ -117,21 +124,20 @@ export function AskMyCfoPanel() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, requestActive, updateLoading]);
 
-  useEffect(() => {
-    if (!loading) return;
-    const interval = setInterval(() => {
-      setLoadingStep((s) => (s + 1) % LOADING_STEPS.length);
-    }, 1200);
-    return () => clearInterval(interval);
-  }, [loading]);
+  const loading = requestActive || updateLoading;
+  const displayError = error ?? requestError;
 
-  const sendQuestion = async (q: string, options?: { replaceMessageId?: string; isRecalculate?: boolean }) => {
-    if (!q.trim() || loading) return;
+  const sendQuestion = async (
+    q: string,
+    options?: { replaceMessageId?: string; isRecalculate?: boolean; skipAI?: boolean }
+  ) => {
+    if (!q.trim() || requestActive) return;
     setError(null);
-    setLoading(true);
-    setLoadingStep(0);
+    setRequestError(null);
+    resetState();
+    setSlowWarningDismissed(false);
     setPendingCommand(null);
 
     if (!options?.isRecalculate) {
@@ -140,56 +146,45 @@ export function AskMyCfoPanel() {
     }
     setQuestion("");
 
-    try {
-      const url = conversationId
-        ? `/api/v1/cfo/conversations/${conversationId}/messages`
-        : "/api/v1/cfo/conversations";
+    const result = await sendCfoQuestion(q, {
+      conversationId,
+      skipAI: options?.skipAI,
+      idempotencyKey: crypto.randomUUID(),
+    });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q.trim(), conversationId }),
-      });
+    if (!result) return;
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Request failed");
+    setConversationId(result.conversationId);
 
-      setConversationId(data.conversationId);
-
-      if (options?.replaceMessageId) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === options.replaceMessageId
-              ? {
-                  ...m,
-                  content: data.response.compact?.advice ?? data.response.answer,
-                  response: data.response,
-                  snapshotStale: false,
-                  recalculated: true,
-                }
-              : { ...m, basedOnOlderBalances: m.role === "assistant" ? true : m.basedOnOlderBalances }
-          )
-        );
-      } else {
-        setMessages((prev) => [
-          ...prev.map((m) =>
-            m.role === "assistant" ? { ...m, basedOnOlderBalances: true, snapshotStale: true } : m
-          ),
-          {
-            id: data.messageId,
-            role: "assistant",
-            content: data.response.compact?.advice ?? data.response.answer,
-            response: data.response,
-            snapshotStale: data.snapshotStale,
-          },
-        ]);
-      }
-      fetchUsage();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
+    if (options?.replaceMessageId) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === options.replaceMessageId
+            ? {
+                ...m,
+                content: result.response.compact?.advice ?? result.response.answer,
+                response: result.response,
+                snapshotStale: false,
+                recalculated: true,
+              }
+            : { ...m, basedOnOlderBalances: m.role === "assistant" ? true : m.basedOnOlderBalances }
+        )
+      );
+    } else {
+      setMessages((prev) => [
+        ...prev.map((m) =>
+          m.role === "assistant" ? { ...m, basedOnOlderBalances: true, snapshotStale: true } : m
+        ),
+        {
+          id: result.messageId,
+          role: "assistant",
+          content: result.response.compact?.advice ?? result.response.answer,
+          response: result.response,
+          snapshotStale: result.snapshotStale,
+        },
+      ]);
     }
+    fetchUsage();
   };
 
   const handleSubmit = async (q: string) => {
@@ -197,7 +192,7 @@ export function AskMyCfoPanel() {
 
     if (composerMode === "update" || /update|transfer|mark.*paid|record.*deposit|balance is now/i.test(q)) {
       setError(null);
-      setLoading(true);
+      setUpdateLoading(true);
       const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
       setMessages((prev) => [...prev, userMsg]);
       setQuestion("");
@@ -235,7 +230,7 @@ export function AskMyCfoPanel() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not parse update");
       } finally {
-        setLoading(false);
+        setUpdateLoading(false);
       }
       return;
     }
@@ -245,7 +240,7 @@ export function AskMyCfoPanel() {
 
   const confirmUpdate = async () => {
     if (!pendingCommand || loading) return;
-    setLoading(true);
+    setUpdateLoading(true);
     setError(null);
 
     try {
@@ -291,12 +286,12 @@ export function AskMyCfoPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Update failed");
     } finally {
-      setLoading(false);
+      setUpdateLoading(false);
     }
   };
 
   const undoUpdate = async (auditId: string) => {
-    setLoading(true);
+    setUpdateLoading(true);
     try {
       const res = await fetch("/api/v1/cfo/commands/undo", {
         method: "POST",
@@ -319,7 +314,7 @@ export function AskMyCfoPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Undo failed");
     } finally {
-      setLoading(false);
+      setUpdateLoading(false);
     }
   };
 
@@ -444,19 +439,74 @@ export function AskMyCfoPanel() {
           );
         })}
 
-        {loading && (
-          <div className="flex items-center gap-2 text-sm text-fk-muted" aria-busy="true" aria-label="Analyzing your question">
-            <Loader2 className="h-4 w-4 animate-spin text-fk-gold" aria-hidden />
-            {LOADING_STEPS[loadingStep]}
+        {loading && stateLabel && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-fk-muted" aria-busy="true" aria-label="Analyzing your question">
+              <Loader2 className="h-4 w-4 animate-spin text-fk-gold" aria-hidden />
+              {stateLabel}
+            </div>
+            {slowWarning && !slowWarningDismissed && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p>This is taking longer than expected.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="h-8" onClick={() => setSlowWarningDismissed(true)}>
+                    Keep waiting
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8" onClick={cancelRequest}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={() => {
+                      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+                      if (lastUser) sendQuestion(lastUser.content, { skipAI: true });
+                    }}
+                  >
+                    Use Finance King only
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {error && (
+        {process.env.NODE_ENV === "development" && (
+          <CfoRequestDebugPanel requestId={lastRequestId} state={requestState} />
+        )}
+
+        {displayError && (
           <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">
-            {error}
-            <Button variant="ghost" size="sm" className="mt-2 h-8" onClick={() => setError(null)}>
-              <RefreshCw className="mr-1 h-3 w-3" /> Retry
-            </Button>
+            {displayError}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  setError(null);
+                  setRequestError(null);
+                  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+                  if (lastUser) handleSubmit(lastUser.content);
+                }}
+              >
+                <RefreshCw className="mr-1 h-3 w-3" /> Retry
+              </Button>
+              {requestState === "ERROR" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8"
+                  onClick={() => {
+                    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+                    if (lastUser) sendQuestion(lastUser.content, { skipAI: true });
+                  }}
+                >
+                  Finance King only
+                </Button>
+              )}
+            </div>
           </div>
         )}
       </div>

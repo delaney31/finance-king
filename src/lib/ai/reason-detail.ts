@@ -32,7 +32,9 @@ export function extractPurchaseContext(
   question: string,
   toolResults: ToolExecutionRecord[]
 ): PurchaseContext {
-  const purchaseTool = toolResults.find((t) => t.toolName === "simulatePurchase");
+  const purchaseTool = toolResults.find(
+    (t) => t.toolName === "simulatePurchase" || t.toolName === "simulateBusinessPurchase"
+  );
   const data = purchaseTool?.result.data as {
     impact?: PurchaseImpact;
     purchase?: { name: string; amount: number; accountId?: string };

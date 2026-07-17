@@ -50,7 +50,9 @@ export function buildFallbackResponse(
   let recommendedAmount: number | undefined;
 
   const stsTool = toolResults.find((t) => t.toolName === "calculateSafeToSpend");
-  const purchaseTool = toolResults.find((t) => t.toolName === "simulatePurchase");
+  const purchaseTool = toolResults.find(
+    (t) => t.toolName === "simulatePurchase" || t.toolName === "simulateBusinessPurchase"
+  );
   const explainTool = toolResults.find((t) => t.toolName === "explainMetric");
   const debtTool = toolResults.find((t) => t.toolName === "calculateDebtPaymentOptions");
   const overdraftTool = toolResults.find((t) => t.toolName === "detectOverdraftRisk");

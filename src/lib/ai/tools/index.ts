@@ -509,3 +509,129 @@ export async function getRecommendedAccountForExpense(
 
   return wrap(snapshotId, { recommended, routingTag: tag, expense });
 }
+
+export type BusinessPurchaseSimulation = {
+  clearedOperatingCash: number;
+  protectedBusinessReserve: number;
+  upcomingBusinessBills: number;
+  minimumOperatingFloor: number;
+  approvedBusinessCommitments: number;
+  availableBeforePurchase: number;
+  balanceAfterPurchase: number;
+  safeToSpendAfterPurchase: number;
+  canAfford: boolean;
+  shortfall: number;
+  recommendedAccountId?: string;
+  warnings: string[];
+  assumptions: string[];
+  calculationLines: Array<{
+    label: string;
+    amount: number;
+    type: "AVAILABLE" | "PROTECTED" | "RESERVED" | "EXPENSE" | "RESULT";
+  }>;
+};
+
+export async function simulateBusinessPurchase(input: {
+  userId: string;
+  snapshot: EngineSnapshot;
+  snapshotId: string;
+  businessEntityName?: string;
+  businessEntityId?: string;
+  amount: number;
+  category: string;
+  purchaseDate: Date;
+  preferredAccountId?: string;
+}): Promise<
+  FinancialToolResult<{
+    simulation: BusinessPurchaseSimulation;
+    impact: ReturnType<typeof simulatePurchaseImpact>;
+    purchase: {
+      name: string;
+      amount: number;
+      category: string;
+      isBusiness: true;
+    };
+    recommendedAccount?: { id: string; nickname: string; lastFour?: string | null };
+  }>
+> {
+  let entityId = input.businessEntityId;
+  if (!entityId && input.businessEntityName) {
+    const entity = await prisma.businessEntity.findFirst({
+      where: {
+        userId: input.userId,
+        name: { contains: input.businessEntityName.split(/\s+/)[0], mode: "insensitive" },
+      },
+    });
+    entityId = entity?.id;
+  }
+
+  const purchaseName = input.category.toLowerCase() === "advertising"
+    ? "advertising"
+    : input.category;
+
+  const purchaseResult = await simulatePurchase(
+    input.userId,
+    input.snapshot,
+    input.snapshotId,
+    {
+      name: purchaseName,
+      amount: input.amount,
+      date: format(input.purchaseDate, "yyyy-MM-dd"),
+      accountId: input.preferredAccountId,
+      isBusiness: true,
+    }
+  );
+
+  const impact = purchaseResult.data.impact;
+  const account = impact.affectedAccounts[0];
+  const businessAccounts = input.snapshot.accounts.filter(
+    (a) => a.routingTag === "PACIFIC_LUXE" || a.routingTag === "JADE_SYSTEMS"
+  );
+  const clearedOperatingCash = businessAccounts
+    .filter((a) => a.accountType !== "BUSINESS_SAVINGS")
+    .reduce((sum, a) => sum + a.currentBalance, 0);
+  const protectedBusinessReserve = businessAccounts
+    .filter((a) => a.accountType === "BUSINESS_SAVINGS" || a.protectedBalance > 0)
+    .reduce((sum, a) => sum + (a.protectedBalance || a.currentBalance), 0);
+
+  const simulation: BusinessPurchaseSimulation = {
+    clearedOperatingCash,
+    protectedBusinessReserve,
+    upcomingBusinessBills: 0,
+    minimumOperatingFloor: impact.requiredCushion,
+    approvedBusinessCommitments: 0,
+    availableBeforePurchase: account?.before ?? clearedOperatingCash,
+    balanceAfterPurchase: account?.after ?? clearedOperatingCash - input.amount,
+    safeToSpendAfterPurchase: impact.safeToSpendAfter,
+    canAfford: impact.canAffordCash,
+    shortfall: impact.shortfall,
+    recommendedAccountId: purchaseResult.data.recommendedAccount?.id,
+    warnings: [...purchaseResult.warnings, ...impact.warnings],
+    assumptions: purchaseResult.assumptions,
+    calculationLines: [
+      { label: "Cleared operating cash", amount: account?.before ?? clearedOperatingCash, type: "AVAILABLE" },
+      { label: "Protected business reserve", amount: protectedBusinessReserve, type: "PROTECTED" },
+      { label: "Minimum operating floor", amount: impact.requiredCushion, type: "RESERVED" },
+      { label: input.category, amount: input.amount, type: "EXPENSE" },
+      { label: "Cash after purchase", amount: account?.after ?? 0, type: "RESULT" },
+      { label: "Safe to spend after", amount: impact.safeToSpendAfter, type: "RESULT" },
+    ],
+  };
+
+  return wrap(
+    input.snapshotId,
+    {
+      simulation,
+      impact,
+      purchase: {
+        name: purchaseName,
+        amount: input.amount,
+        category: input.category,
+        isBusiness: true as const,
+      },
+      recommendedAccount: purchaseResult.data.recommendedAccount,
+    },
+    simulation.warnings,
+    simulation.assumptions
+  );
+}
