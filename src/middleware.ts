@@ -3,11 +3,15 @@ import { auth } from "@/lib/auth";
 
 const publicPaths = ["/", "/login", "/register", "/privacy", "/terms", "/api/auth", "/api/health"];
 
+function isPublicPath(pathname: string): boolean {
+  if (pathname.startsWith("/api/auth")) return true;
+  if (pathname === "/api/health" || pathname.startsWith("/api/health/")) return true;
+  return publicPaths.includes(pathname);
+}
+
 export default auth((req) => {
   const { pathname } = req.nextUrl;
-  const isPublic = publicPaths.some(
-    (p) => pathname === p || pathname.startsWith("/api/auth")
-  );
+  const isPublic = isPublicPath(pathname);
 
   if (!req.auth && !isPublic) {
     if (pathname.startsWith("/api/")) {
