@@ -1,12 +1,11 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
-import { getEngineSnapshot } from "@/lib/services/snapshot";
 import { buildAvalanchePlan, buildSnowballPlan, computeUtilizationTargets, CREDIT_DISCLAIMER } from "@/lib/engine";
 import { formatMoney } from "@/lib/utils/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { CreditCardsGrid } from "@/components/accounts/credit-cards-grid";
 
 export default async function CreditPage() {
   const session = await auth();
@@ -44,26 +43,17 @@ export default async function CreditPage() {
         <AlertDescription>{CREDIT_DISCLAIMER}</AlertDescription>
       </Alert>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {creditCards.map((c) => {
-          const util = Number(c.creditLimit) > 0 ? Number(c.currentBalance) / Number(c.creditLimit) : 0;
-          return (
-            <Card key={c.id}>
-              <CardHeader>
-                <CardTitle className="text-base">{c.issuer}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-mono-amount text-xl">{formatMoney(Number(c.currentBalance))}</p>
-                <p className="text-sm text-fk-muted">Limit: {formatMoney(Number(c.creditLimit))}</p>
-                <Progress value={util * 100} className="mt-2" />
-                <p className="mt-1 text-xs text-fk-muted">
-                  Min payment: {formatMoney(Number(c.minimumPayment ?? 0))} · Due day {c.paymentDueDay}
-                </p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <CreditCardsGrid
+        cards={creditCards.map((c) => ({
+          id: c.id,
+          issuer: c.issuer,
+          accountId: c.accountId,
+          currentBalance: Number(c.currentBalance),
+          creditLimit: Number(c.creditLimit),
+          minimumPayment: Number(c.minimumPayment ?? 0),
+          paymentDueDay: c.paymentDueDay,
+        }))}
+      />
 
       <Card>
         <CardHeader>
@@ -84,14 +74,14 @@ export default async function CreditPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader><CardTitle>Avalanche Strategy</CardTitle></CardHeader>
-            <CardContent className="text-sm space-y-1">
+            <CardContent className="space-y-1 text-sm">
               <p>Payoff: {avalanche.payoffDate}</p>
               <p>Interest saved est.: {formatMoney(avalanche.totalInterest)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader><CardTitle>Snowball Strategy</CardTitle></CardHeader>
-            <CardContent className="text-sm space-y-1">
+            <CardContent className="space-y-1 text-sm">
               <p>Payoff: {snowball.payoffDate}</p>
               <p>Interest est.: {formatMoney(snowball.totalInterest)}</p>
             </CardContent>

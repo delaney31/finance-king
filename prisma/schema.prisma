@@ -270,6 +270,8 @@ model User {
   aiConversations         AIConversation[]
   aiUsageRecords          AIUsageRecord[]
   financialCalculationExplanations FinancialCalculationExplanation[]
+  payees                  Payee[]
+  accountActivityEvents   AccountActivityEvent[]
 }
 
 model Account {
@@ -428,6 +430,7 @@ model FinancialAccount {
   routingRulesTo    AccountRoutingRule[]    @relation("TargetAccount")
   recurringTransactions RecurringTransaction[]
   accountAliases        AccountAlias[]
+  activityEvents        AccountActivityEvent[]
 
   @@index([userId, accountType])
 }
@@ -454,6 +457,86 @@ model AccountAlias {
 
   @@unique([userId, normalizedAlias, financialAccountId])
   @@index([userId, normalizedAlias])
+}
+
+enum AccountActivityEventType {
+  ACCOUNT_CREATED
+  BALANCE_UPDATED
+  TRANSACTION_ADDED
+  TRANSACTION_UPDATED
+  TRANSACTION_DELETED
+  INCOME_RECORDED
+  EXPENSE_RECORDED
+  PAYMENT_RECORDED
+  TRANSFER_SENT
+  TRANSFER_RECEIVED
+  BILL_PAID
+  PENDING_CLEARED
+  SCREENSHOT_IMPORTED
+  VOICE_COMMAND_APPLIED
+  PROTECTED_AMOUNT_CHANGED
+  MINIMUM_FLOOR_CHANGED
+  ACCOUNT_DETAILS_CHANGED
+  IMPORT_UNDONE
+  CHANGE_UNDONE
+}
+
+enum ActivitySource {
+  VOICE
+  AI_CHAT
+  MANUAL
+  SCREENSHOT
+  SYSTEM
+  IMPORT
+}
+
+model Payee {
+  id               String    @id @default(cuid())
+  userId           String
+  canonicalName    String
+  aliases          String[]  @default([])
+  defaultCategory  String?
+  defaultAccountId String?
+  businessEntityId String?
+  transactionCount Int       @default(0)
+  lastUsedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, canonicalName])
+  @@index([userId])
+}
+
+model AccountActivityEvent {
+  id                  String                   @id @default(cuid())
+  userId              String
+  accountId           String
+  eventType           AccountActivityEventType
+  timestamp           DateTime                 @default(now())
+  effectiveDate       DateTime                 @db.Date
+  previousBalance     Decimal?                 @db.Decimal(14, 2)
+  newBalance          Decimal?                 @db.Decimal(14, 2)
+  amount              Decimal?                 @db.Decimal(14, 2)
+  transactionId       String?
+  relatedAccountId    String?
+  relatedBillId       String?
+  relatedDebtId       String?
+  relatedUploadId     String?
+  payee               String?
+  category            String?
+  description         String
+  source              ActivitySource
+  originalTranscript  String?
+  financialSnapshotId String?
+  auditLogId          String
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, timestamp])
+  @@index([userId, accountId])
 }
 
 model AccountBalanceSnapshot {

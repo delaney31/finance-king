@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/utils/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { PageVoiceActions } from "@/components/voice/page-voice-actions";
 
 export default async function TransactionsPage() {
   const session = await auth();
@@ -19,7 +20,10 @@ export default async function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Transactions</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Transactions</h1>
+        <PageVoiceActions label="Add transaction by voice" />
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Recent Activity</CardTitle>

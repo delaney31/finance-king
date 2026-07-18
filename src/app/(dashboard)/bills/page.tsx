@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { formatMoney } from "@/lib/utils/money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
+import { PageVoiceActions } from "@/components/voice/page-voice-actions";
 
 export default async function BillsPage() {
   const session = await auth();
@@ -16,7 +17,10 @@ export default async function BillsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Bills & Obligations</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Bills & Obligations</h1>
+        <PageVoiceActions label="Record payment by voice" />
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         {bills.map((b) => (
           <Card key={b.id}>

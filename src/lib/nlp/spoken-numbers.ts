@@ -104,13 +104,16 @@ export function replaceSpokenAmounts(text: string): { text: string; amounts: Spo
   const amounts: SpokenAmountParse[] = [];
   let result = text;
 
-  result = result.replace(/\$?\s*([\w\s-]+?)\s+(?:dollars?|bucks?)\b/gi, (match, group) => {
-    const phrase = stripLeadingArticles(group.trim());
-    if (!isLikelyNumberPhrase(phrase)) return match;
-    const value = parseSpokenNumberPhrase(phrase)!;
-    amounts.push({ value, raw: match });
-    return formatAmount(value);
-  });
+  result = result.replace(
+    /\b([\w\s-]*?)(\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|\d+)(?:[\w\s-]*?))\s+(dollars?|bucks?)\b/gi,
+    (match, prefix, numberPart) => {
+      const phrase = numberPart.trim();
+      if (!isLikelyNumberPhrase(phrase)) return match;
+      const value = parseSpokenNumberPhrase(phrase)!;
+      amounts.push({ value, raw: phrase });
+      return `${prefix}${formatAmount(value)}`;
+    }
+  );
 
   result = result.replace(/\b([\w\s-]+?)\s+grand\b/gi, (match, group) => {
     const base = parseSpokenNumberPhrase(group.trim()) ?? 1;
@@ -162,7 +165,18 @@ export function parseAmountFromText(text: string): number | undefined {
     const values = dollarMatches.map((m) => Number(m[1].replace(/,/g, "")));
     return Math.max(...values);
   }
-  const m = normalized.replace(/\bw[\s-]?2\b/gi, "").match(/\b([\d,]+(?:\.\d{1,2})?)\b/);
-  if (!m) return undefined;
-  return Number(m[1].replace(/,/g, ""));
+  const m = normalized.replace(/\bw[\s-]?2\b/gi, "").match(/\$\s*([\d,]+(?:\.\d{1,2})?)/);
+  if (m) return Number(m[1].replace(/,/g, ""));
+
+  const trailingSpoken = normalized.match(
+    /\b(?:paid|spent|sent|transfer|move)\b.+?\b((?:\w+\s+){0,6}(?:hundred|thousand|grand))\b/i
+  );
+  if (trailingSpoken) {
+    const v = parseSpokenNumberPhrase(trailingSpoken[1]);
+    if (v != null) return v;
+  }
+
+  const digitMatch = normalized.match(/\b([\d,]+(?:\.\d{1,2})?)\b/);
+  if (!digitMatch) return undefined;
+  return Number(digitMatch[1].replace(/,/g, ""));
 }

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/utils/money";
 import type { DailyProjection } from "@/lib/engine/types";
+import { PageVoiceActions } from "@/components/voice/page-voice-actions";
 
 interface CalendarPageProps {
   projections: DailyProjection[];
@@ -47,7 +48,10 @@ export function CalendarContent({ projections, accounts }: CalendarPageProps) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Financial Calendar</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Financial Calendar</h1>
+        <PageVoiceActions label="Record activity by voice" />
+      </div>
 
       <Card>
         <CardHeader>
