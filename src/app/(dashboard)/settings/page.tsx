@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AccountAliasesSettings } from "@/components/settings/account-aliases-settings";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -32,6 +33,13 @@ export default async function SettingsPage() {
           <p>Safety margin: ${Number(user?.preference?.safetyMarginFlat ?? 500)}</p>
           <p>Local OCR only: {user?.preference?.localOcrOnly ? "Yes" : "No"}</p>
           <p>Theme: {user?.preference?.theme}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Ask My CFO</CardTitle></CardHeader>
+        <CardContent>
+          <AccountAliasesSettings />
         </CardContent>
       </Card>
 

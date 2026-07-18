@@ -1,55 +1,95 @@
-import type { FinancialAccount } from "@prisma/client";
+import type { FinancialAccount, BusinessEntity } from "@prisma/client";
+import type { AccountAlias } from "@/lib/accounts/types";
+import {
+  resolveAccountReference,
+  formatClarificationQuestion,
+  formatDisplayName,
+} from "@/lib/accounts/resolution";
+import { toResolutionAccount } from "@/lib/accounts/alias-service";
+
+type AccountWithEntity = FinancialAccount & { businessEntity?: BusinessEntity | null };
 
 export interface AccountMatchResult {
   account?: FinancialAccount;
   candidates?: FinancialAccount[];
   ambiguous: boolean;
-}
-
-function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  clarificationQuestion?: string;
+  resolutionCandidates?: Array<{
+    accountId: string;
+    displayName: string;
+    score: number;
+  }>;
+  matchedPhrase?: string;
 }
 
 export function matchAccount(
-  accounts: FinancialAccount[],
+  accounts: AccountWithEntity[],
   query: {
     accountId?: string;
     accountName?: string;
     institution?: string;
     lastFour?: string;
-  }
+  },
+  aliases: AccountAlias[] = []
 ): AccountMatchResult {
   if (query.accountId) {
     const account = accounts.find((a) => a.id === query.accountId);
     return { account, ambiguous: false };
   }
 
-  const name = query.accountName ? normalize(query.accountName) : "";
-  const inst = query.institution ? normalize(query.institution) : "";
-
-  const candidates = accounts.filter((a) => {
-    const nick = normalize(a.nickname);
-    const institution = normalize(a.institution);
-    if (name && (nick.includes(name) || name.includes(nick))) return true;
-    if (inst && institution.includes(inst)) return true;
-    if (query.lastFour && a.accountLastFour === query.lastFour) return true;
-    return false;
-  });
-
-  if (name) {
-    const exact = accounts.filter((a) => normalize(a.nickname) === name);
-    if (exact.length === 1) return { account: exact[0], ambiguous: false };
-    if (exact.length > 1) return { candidates: exact, ambiguous: true };
+  if (query.lastFour) {
+    const matches = accounts.filter((a) => a.accountLastFour === query.lastFour);
+    if (matches.length === 1) return { account: matches[0], ambiguous: false };
+    if (matches.length > 1) {
+      return {
+        candidates: matches,
+        ambiguous: true,
+        clarificationQuestion: formatAmbiguityQuestion(matches),
+      };
+    }
   }
 
-  if (candidates.length === 1) return { account: candidates[0], ambiguous: false };
-  if (candidates.length > 1) return { candidates, ambiguous: true };
+  const phrase = query.accountName ?? query.institution;
+  if (!phrase) {
+    return { ambiguous: false };
+  }
+
+  const resolutionAccounts = accounts.map((a) => toResolutionAccount(a));
+
+  const result = resolveAccountReference(phrase, resolutionAccounts, aliases);
+
+  if (result.resolvedAccountId && !result.requiresClarification) {
+    const account = accounts.find((a) => a.id === result.resolvedAccountId);
+    return {
+      account,
+      ambiguous: false,
+      matchedPhrase: phrase,
+    };
+  }
+
+  if (result.candidates.length > 0) {
+    const candidateAccounts = result.candidates
+      .map((c) => accounts.find((a) => a.id === c.accountId))
+      .filter((a): a is FinancialAccount => !!a);
+
+    return {
+      candidates: candidateAccounts,
+      ambiguous: true,
+      clarificationQuestion:
+        result.clarificationQuestion ?? formatClarificationQuestion(result.candidates),
+      resolutionCandidates: result.candidates.map((c) => ({
+        accountId: c.accountId,
+        displayName: c.displayName,
+        score: c.score,
+      })),
+      matchedPhrase: phrase,
+    };
+  }
+
   return { ambiguous: false };
 }
 
-export function formatAmbiguityQuestion(candidates: FinancialAccount[]): string {
-  const list = candidates
-    .map((a) => `${a.nickname}${a.accountLastFour ? ` ending ${a.accountLastFour}` : ""}`)
-    .join(" or ");
-  return `You have ${candidates.length} matching accounts. Which one should I update: ${list}?`;
+export function formatAmbiguityQuestion(candidates: AccountWithEntity[]): string {
+  const list = candidates.map((a) => formatDisplayName(toResolutionAccount(a))).join(" or ");
+  return `Which account did you mean: ${list}?`;
 }

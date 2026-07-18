@@ -14,13 +14,14 @@ import type { CFOAssistantResponse } from "@/lib/ai/types";
 import type { CFODataCommand } from "@/lib/ai/commands/schemas";
 import { FINANCIAL_STATE_CHANGED_EVENT } from "@/lib/financial-state/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CfoCompactAnswerCard } from "./cfo-compact-answer-card";
 import { CfoUpdateConfirmationCard, CfoUpdateResultCard } from "./cfo-update-confirmation-card";
 import { useAskMyCfo } from "./ask-my-cfo-provider";
 import { useCfoRequest } from "./use-cfo-request";
 import { CfoRequestDebugPanel } from "./cfo-request-debug-panel";
+import { CfoVoiceComposer } from "./cfo-voice-composer";
+import { CfoAccountClarificationCard } from "./cfo-account-clarification-card";
 
 type ComposerMode = "ask" | "update";
 
@@ -80,6 +81,12 @@ export function AskMyCfoPanel() {
     command: CFODataCommand;
     preview: Record<string, unknown>;
     originalMessage: string;
+  } | null>(null);
+  const [clarification, setClarification] = useState<{
+    message: string;
+    question: string;
+    candidates: Array<{ accountId: string; displayName: string; score: number }>;
+    accountPhrase?: string;
   } | null>(null);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
@@ -187,26 +194,52 @@ export function AskMyCfoPanel() {
     fetchUsage();
   };
 
+  const isUpdateMessage = (q: string) =>
+    /update|transfer|mark.*paid|record.*deposit|balance is now|my .+ account has|move .+ from|came in|delayed until|paycheck/i.test(
+      q
+    );
+
+  const parseUpdate = async (
+    q: string,
+    options?: { selectedAccountId?: string; accountPhrase?: string; learnAlias?: boolean }
+  ) => {
+    const res = await fetch("/api/v1/cfo/commands/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: q.trim(),
+        selectedAccountId: options?.selectedAccountId,
+        accountPhrase: options?.accountPhrase,
+        learnAlias: options?.learnAlias,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Parse failed");
+    return data;
+  };
+
   const handleSubmit = async (q: string) => {
     if (!q.trim() || loading) return;
 
-    if (composerMode === "update" || /update|transfer|mark.*paid|record.*deposit|balance is now/i.test(q)) {
+    if (composerMode === "update" || isUpdateMessage(q)) {
       setError(null);
       setUpdateLoading(true);
+      setClarification(null);
       const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: q.trim() };
       setMessages((prev) => [...prev, userMsg]);
       setQuestion("");
 
       try {
-        const res = await fetch("/api/v1/cfo/commands/parse", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: q.trim() }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Parse failed");
+        const data = await parseUpdate(q.trim());
 
-        if (data.preview?.type === "clarification") {
+        if (data.candidates?.length > 0 && data.preview?.type === "clarification") {
+          setClarification({
+            message: q.trim(),
+            question: data.preview.question,
+            candidates: data.candidates,
+            accountPhrase: data.accountPhrase,
+          });
+        } else if (data.preview?.type === "clarification") {
           setMessages((prev) => [
             ...prev,
             { id: `a-${Date.now()}`, role: "assistant", content: data.preview.question },
@@ -236,6 +269,30 @@ export function AskMyCfoPanel() {
     }
 
     await sendQuestion(q);
+  };
+
+  const handleAccountClarification = async (accountId: string) => {
+    if (!clarification) return;
+    setUpdateLoading(true);
+    try {
+      const data = await parseUpdate(clarification.message, {
+        selectedAccountId: accountId,
+        accountPhrase: clarification.accountPhrase,
+        learnAlias: true,
+      });
+      setClarification(null);
+      if (data.needsConfirmation) {
+        setPendingCommand({
+          command: data.command,
+          preview: data.preview,
+          originalMessage: clarification.message,
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not resolve account");
+    } finally {
+      setUpdateLoading(false);
+    }
   };
 
   const confirmUpdate = async () => {
@@ -382,6 +439,15 @@ export function AskMyCfoPanel() {
               ))}
             </div>
           </div>
+        )}
+
+        {clarification && (
+          <CfoAccountClarificationCard
+            question={clarification.question}
+            candidates={clarification.candidates}
+            loading={loading}
+            onSelect={handleAccountClarification}
+          />
         )}
 
         {pendingCommand && (
@@ -532,38 +598,37 @@ export function AskMyCfoPanel() {
           <Shield className="h-3 w-3 shrink-0" />
           Finance King will always show a preview before changing your records.
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2">
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-10 w-9 shrink-0"
             onClick={newConversation}
             title="New conversation"
             aria-label="New conversation"
           >
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
-          <Input
-            placeholder={
-              composerMode === "update"
-                ? "Update a balance, record income, or mark a bill paid…"
-                : "Ask about spending, bills, or debt…"
-            }
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleSubmit(question);
+          <div className="min-w-0 flex-1">
+            <CfoVoiceComposer
+              value={question}
+              onChange={setQuestion}
+              onSubmit={() => handleSubmit(question)}
+              placeholder={
+                composerMode === "update"
+                  ? "Update a balance, record income, or mark a bill paid…"
+                  : "Ask about spending, bills, or debt…"
               }
-            }}
-            className="h-9 flex-1 border-fk-border/80 bg-fk-charcoal/50 text-sm"
-            disabled={loading}
-            aria-label={composerMode === "update" ? "Update financial records" : "Ask your CFO a question"}
-          />
+              disabled={loading}
+              loading={loading}
+              inputAriaLabel={
+                composerMode === "update" ? "Update financial records" : "Ask your CFO a question"
+              }
+            />
+          </div>
           <Button
             size="icon"
-            className="h-9 w-9 shrink-0"
+            className="h-10 w-10 shrink-0"
             onClick={() => handleSubmit(question)}
             disabled={loading || !question.trim()}
             aria-label="Send"

@@ -242,6 +242,7 @@ model User {
   household             Household?
   businessEntities      BusinessEntity[]
   financialAccounts     FinancialAccount[]
+  accountAliases        AccountAlias[]
   transactions          Transaction[]
   categories            TransactionCategory[]
   categorizationRules   CategorizationRule[]
@@ -426,8 +427,33 @@ model FinancialAccount {
   routingRulesFrom  AccountRoutingRule[]    @relation("SourceAccount")
   routingRulesTo    AccountRoutingRule[]    @relation("TargetAccount")
   recurringTransactions RecurringTransaction[]
+  accountAliases        AccountAlias[]
 
   @@index([userId, accountType])
+}
+
+enum AliasSource {
+  SYSTEM
+  USER
+  AI_LEARNED
+}
+
+model AccountAlias {
+  id                 String      @id @default(cuid())
+  userId             String
+  financialAccountId String
+  alias              String
+  normalizedAlias    String
+  source             AliasSource @default(USER)
+  confidence         Float       @default(1.0)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  financialAccount FinancialAccount @relation(fields: [financialAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedAlias, financialAccountId])
+  @@index([userId, normalizedAlias])
 }
 
 model AccountBalanceSnapshot {

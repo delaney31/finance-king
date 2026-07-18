@@ -1,5 +1,6 @@
 import type { FinancialAssistantIntent, IntentResult } from "../types";
 import { classifyIntentRules } from "../providers/rules-based";
+import { normalizeCfoMessage } from "@/lib/nlp/normalize-message";
 
 const DETERMINISTIC_CONFIDENCE_THRESHOLD = 0.85;
 
@@ -10,12 +11,11 @@ const patterns: Array<{
 }> = [
   {
     intent: "CAN_I_AFFORD",
-    regex:
-      /can\s+(.+?)\s+(?:spend|afford|buy)\s+\$?([\d,]+(?:\.\d{1,2})?)/i,
+    regex: /can\s+(?:the\s+)?(.+?)\s+(?:spend|afford|buy)\s+\$?([\d,]+(?:\.\d{1,2})?)/i,
     extract: (match, question) => {
       const amount = Number((match[2] ?? "").replace(/,/g, ""));
       const entity = match[1]?.trim() ?? "";
-      const isBusiness = /pacific\s+luxe|business|jadessystems|jade\s+systems/i.test(
+      const isBusiness = /pacific\s+luxe|rental|business|jadessystems|jade\s+systems/i.test(
         entity + " " + question
       );
       const categoryMatch = question.match(/\bon\s+(.+?)(?:\?|$)/i);
@@ -31,8 +31,8 @@ const patterns: Array<{
   },
   {
     intent: "SAFE_TO_SPEND",
-    regex: /how much can i (?:safely )?spend/i,
-    extract: () => ({ horizon: "today" }),
+    regex: /how much can i (?:safely )?spend(?:\s+this\s+weekend)?/i,
+    extract: (_m, q) => ({ horizon: /weekend/i.test(q) ? "week" : "today" }),
   },
   {
     intent: "CAN_I_AFFORD",
@@ -91,8 +91,9 @@ export function parseDeterministicIntent(question: string): IntentResult | null 
   return null;
 }
 
-export function classifyIntentDeterministicFirst(question: string): IntentResult {
-  const deterministic = parseDeterministicIntent(question);
+export function classifyIntentDeterministicFirst(question: string, timezone?: string): IntentResult {
+  const normalized = normalizeCfoMessage(question, { timezone });
+  const deterministic = parseDeterministicIntent(normalized);
   if (deterministic && deterministic.confidence >= DETERMINISTIC_CONFIDENCE_THRESHOLD) {
     return deterministic;
   }
