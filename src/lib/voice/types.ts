@@ -1,23 +1,50 @@
 export type VoiceInputState =
   | "IDLE"
   | "REQUESTING_PERMISSION"
+  | "STARTING"
   | "LISTENING"
+  | "STOPPING"
   | "PROCESSING"
   | "READY"
-  | "ERROR";
+  | "ERROR"
+  | "UNSUPPORTED";
+
+export type RecognitionEndReason = "USER_STOP" | "CANCEL" | "ERROR" | "BROWSER_END";
+
+export interface SpeechRecognitionEngineCallbacks {
+  onStateChange?: (listening: boolean) => void;
+  onTranscript?: (finalText: string, interimText: string) => void;
+  onError?: (message: string, fatal: boolean) => void;
+  onEnd?: (reason: RecognitionEndReason) => void;
+  onDiagnostic?: (event: string, detail?: string) => void;
+}
+
+export interface SpeechRecognitionEngineOptions {
+  continuous?: boolean;
+  interimResults?: boolean;
+  lang?: string;
+  silenceTimeoutMs?: number;
+  autoRestartOnBrowserEnd?: boolean;
+}
 
 export interface SpeechToTextProvider {
   readonly isSupported: boolean;
-  start(options?: {
-    continuous?: boolean;
-    interimResults?: boolean;
-    lang?: string;
-    onResult?: (transcript: string, isFinal: boolean) => void;
-    onError?: (error: string) => void;
-    onEnd?: () => void;
-  }): void;
+  start(options?: SpeechRecognitionEngineCallbacks & SpeechRecognitionEngineOptions): void;
   stop(): void;
   abort(): void;
+  isSessionActive(): boolean;
+  getDiagnostics(): SpeechRecognitionDiagnostics;
+}
+
+export interface SpeechRecognitionDiagnostics {
+  recognitionExists: boolean;
+  sessionActive: boolean;
+  userRequestedStop: boolean;
+  restartCount: number;
+  lastEvent: string;
+  lastError: string | null;
+  elapsedMs: number;
+  silenceRemainingMs: number | null;
 }
 
 export interface SpeechToTextBlobProvider {
@@ -26,3 +53,7 @@ export interface SpeechToTextBlobProvider {
     confidence?: number;
   }>;
 }
+
+export const DEFAULT_SILENCE_TIMEOUT_MS = 5000;
+
+export const SILENCE_TIMEOUT_OPTIONS = [3000, 5000, 8000, 10000] as const;

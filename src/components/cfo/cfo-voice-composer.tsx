@@ -4,6 +4,7 @@ import { Mic, MicOff, X, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useVoiceInput } from "@/lib/voice/use-voice-input";
+import { VoiceDiagnosticsPanel } from "@/components/voice/voice-diagnostics-panel";
 
 export function CfoVoiceComposer({
   value,
@@ -33,6 +34,12 @@ export function CfoVoiceComposer({
     voice.reset();
   };
 
+  const handleMicClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    voice.toggleListening(event);
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -41,21 +48,18 @@ export function CfoVoiceComposer({
             type="button"
             variant={voice.isListening ? "default" : "outline"}
             size="icon"
-            className={`h-10 w-10 shrink-0 ${
+            className={`h-11 w-11 shrink-0 ${
               voice.isListening
                 ? "animate-pulse border-red-500/50 bg-red-500/20 text-red-400"
-                : ""
+                : "border-blue-500/30 text-blue-300"
             }`}
-            onClick={voice.toggleListening}
-            disabled={disabled || loading}
-            aria-label={voice.isListening ? "Stop listening" : "Start voice input"}
+            onClick={handleMicClick}
+            disabled={disabled || loading || voice.state === "STOPPING" || voice.state === "PROCESSING"}
+            aria-label={voice.isListening ? "Stop listening" : "Tap to speak"}
+            aria-pressed={voice.isListening}
             title={voice.isListening ? "Tap to stop" : "Tap to speak"}
           >
-            {voice.isListening ? (
-              <MicOff className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
+            {voice.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
         )}
 
@@ -78,22 +82,22 @@ export function CfoVoiceComposer({
         />
       </div>
 
-      {(voice.isListening || voice.state === "READY" || voice.error) && (
+      {voice.isListening && (
+        <p className="flex items-center gap-2 text-xs text-red-400">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+          {voice.stateLabel}
+          {voice.elapsedMs > 0 && (
+            <span className="text-fk-muted">({Math.round(voice.elapsedMs / 1000)}s)</span>
+          )}
+        </p>
+      )}
+
+      {(voice.state === "READY" || voice.state === "PROCESSING" || voice.error) && (
         <div className="rounded-lg border border-fk-border/60 bg-fk-charcoal/40 px-3 py-2 text-xs">
-          {voice.isListening && (
-            <p className="flex items-center gap-2 text-fk-gold">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-              {voice.stateLabel} — Tap mic to stop
-            </p>
-          )}
-          {voice.state === "PROCESSING" && (
-            <p className="text-fk-muted">{voice.stateLabel}</p>
-          )}
+          {voice.state === "PROCESSING" && <p className="text-fk-muted">{voice.stateLabel}</p>}
           {voice.state === "READY" && voice.transcript && (
             <div className="space-y-2">
-              <p className="text-fk-muted">
-                Transcript ready — edit if needed, then use or send.
-              </p>
+              <p className="text-fk-muted">Transcript ready — edit if needed, then use or send.</p>
               <p className="text-sm text-fk-foreground">{voice.transcript}</p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" size="sm" className="h-7 text-xs" onClick={handleUseTranscript}>
@@ -117,6 +121,12 @@ export function CfoVoiceComposer({
           {voice.error && <p className="text-amber-400">{voice.error}</p>}
         </div>
       )}
+
+      <VoiceDiagnosticsPanel
+        state={voice.state}
+        diagnostics={voice.diagnostics}
+        elapsedMs={voice.elapsedMs}
+      />
     </div>
   );
 }

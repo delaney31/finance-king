@@ -8,7 +8,6 @@ describe("voice input", () => {
   });
 
   it("does not store audio blobs by default", () => {
-    // v1 uses browser STT only — no Blob persistence
     expect(true).toBe(true);
   });
 });

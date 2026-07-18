@@ -12,6 +12,7 @@ import { getSuggestedPhrases } from "@/lib/voice-financial/preview";
 import type { VoiceFinancialCommand } from "@/lib/voice-financial/schemas";
 import { useVoiceFinancial } from "./voice-financial-provider";
 import { VoiceFinancialConfirmation } from "./voice-financial-confirmation";
+import { VoiceDiagnosticsPanel } from "@/components/voice/voice-diagnostics-panel";
 
 export function AccountVoiceSheet() {
   const { isOpen, closeVoiceSheet, contextAccount } = useVoiceFinancial();
@@ -158,15 +159,19 @@ export function AccountVoiceSheet() {
                     type="button"
                     size="lg"
                     variant={voice.isListening ? "default" : "outline"}
-                    className={`h-16 w-16 rounded-full ${voice.isListening ? "animate-pulse bg-red-500/20" : ""}`}
-                    onClick={voice.toggleListening}
-                    onPointerDown={(e) => {
-                      if (e.button === 0 && e.pointerType === "touch") voice.startListening();
+                    className={`h-16 w-16 rounded-full ${
+                      voice.isListening
+                        ? "animate-pulse border-red-500/50 bg-red-500/20 text-red-400"
+                        : "border-blue-500/30 text-blue-300"
+                    }`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      voice.toggleListening(e);
                     }}
-                    onPointerUp={() => {
-                      if (voice.isListening) voice.stopListening();
-                    }}
-                    aria-label={voice.isListening ? "Tap to stop listening" : "Tap to start voice input"}
+                    disabled={voice.state === "STOPPING" || voice.state === "PROCESSING"}
+                    aria-label={voice.isListening ? "Stop listening" : "Tap to speak"}
+                    aria-pressed={voice.isListening}
                   >
                     {voice.isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
                   </Button>
@@ -174,7 +179,11 @@ export function AccountVoiceSheet() {
                   <p className="text-sm text-amber-400">Voice input is not supported in this browser. Type below.</p>
                 )}
                 <p className="text-xs text-fk-muted">
-                  {voice.isListening ? "Listening… Tap to stop" : voice.stateLabel || "Tap or hold to speak"}
+                  {voice.isListening
+                    ? `Listening… Tap to stop${voice.elapsedMs > 0 ? ` (${Math.round(voice.elapsedMs / 1000)}s)` : ""}`
+                    : voice.state === "READY"
+                      ? "Transcript ready — review below"
+                      : "Tap to speak"}
                 </p>
               </div>
 
@@ -190,10 +199,10 @@ export function AccountVoiceSheet() {
                 />
                 {(voice.transcript || voice.state === "READY") && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={voice.startListening}>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={voice.startListening}>
                       <RotateCcw className="mr-1 h-3 w-3" /> Record again
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={voice.cancel}>
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={voice.cancel}>
                       <X className="mr-1 h-3 w-3" /> Cancel recording
                     </Button>
                   </div>
@@ -277,6 +286,12 @@ export function AccountVoiceSheet() {
           )}
 
           {error && <p className="text-sm text-amber-400">{error}</p>}
+
+          <VoiceDiagnosticsPanel
+            state={voice.state}
+            diagnostics={voice.diagnostics}
+            elapsedMs={voice.elapsedMs}
+          />
         </div>
       </SheetContent>
     </Sheet>
